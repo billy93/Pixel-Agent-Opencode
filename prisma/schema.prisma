@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  x         Int      @default(400)
+  y         Int      @default(300)
+  direction String   @default("down")
+  avatar    String   @default("default")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agents     Agent[]
+  workspaces Workspace[]
+  settings   Settings?
+}
+
+// Workspace represents a "room" in the virtual office
+// Each workspace has its own desk and can contain multiple agents (sessions)
+model Workspace {
+  id        String   @id @default(cuid())
+  path      String   // Absolute path to workspace directory
+  name      String   // Display name (usually last folder name)
+  color     String   @default("#6366f1") // UI color for the workspace room
+  roomIndex Int?     // Index of assigned room (0-7 for grid layout)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  agents Agent[]
+
+  @@unique([userId, path])
+  @@index([userId])
+}
+
+model Agent {
+  id          String   @id @default(cuid())
+  name        String
+  sessionId   String?  @unique
+  status      String   @default("IDLE") // IDLE, SPAWNING, TYPING, READING, RUNNING, WAITING, PERMISSION, ERROR
+  model       String   @default("anthropic/claude-sonnet-4-20250514") // AI model to use
+  currentTask String? // Current task the agent is working on
+  x           Int      @default(100)
+  y           Int      @default(100)
+  direction   String   @default("down")
+  deskIndex   Int? // Index of desk within workspace room (0-3 for 4 desks per workspace)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  permissions Permission[]
+
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  type        String // SHELL, FILE_WRITE, FILE_DELETE, etc.
+  description String
+  status      String   @default("PENDING") // PENDING, APPROVED, DENIED
+  createdAt   DateTime @default(now())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model Layout {
+  id        String   @id @default(cuid())
+  type      String // FLOOR, WALL, DESK, CHAIR, DECORATION, SPAWN_POINT
+  x         Int
+  y         Int
+  variant   String   @default("default")
+  data      String? // JSON string for additional data
+  createdAt DateTime @default(now())
+
+  @@unique([x, y, type])
+}
+
+model Settings {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maxAgentsPerUser    Int      @default(5)
+  maxConcurrentAgents Int      @default(20)
+  officeWidth         Int      @default(48)
+  officeHeight        Int      @default(32)
+  enablePermissions   Boolean  @default(true)
+  recentWorkspaces    String? // JSON array of recent workspace paths
+  updatedAt           DateTime @updatedAt
+}
