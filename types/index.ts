@@ -63,6 +63,7 @@ export interface Character extends Position, Direction {
   isAgent?: boolean;
   workspace?: string;
   color?: string;
+  model?: string; // AI model being used (e.g., "claude-sonnet-4")
   currentTask?: string; // Current task the agent is working on
   needsAction?: boolean; // True when agent has pending permission or question
 }
@@ -150,6 +151,18 @@ export interface AgentChatState {
   hasPermissionPending: boolean;
   hasQuestionPending: boolean;
   pendingQuestions: QuestionRequest[];
+}
+
+// Global chat types (user-to-user messaging)
+export type GlobalChatMessageType = 'text' | 'system' | 'emote';
+
+export interface GlobalChatMsg {
+  id: string;
+  content: string;
+  type: GlobalChatMessageType;
+  userId: string;
+  username: string;
+  createdAt: string;
 }
 
 export interface GameState {

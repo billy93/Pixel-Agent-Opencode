@@ -707,6 +707,9 @@ function renderAgentInfoPanel(
   now: number = performance.now()
 ) {
   const name = character.name || 'Agent';
+  const modelInfo = character.model ? getModelInfo(character.model) : { provider: '', model: '' };
+  const model = modelInfo.model;
+  const provider = modelInfo.provider;
   const workspace = character.workspace ? getShortWorkspaceName(character.workspace) : '';
   const task = character.currentTask ? truncateText(character.currentTask, 20) : '';
   const status = character.status ? getStatusActionText(character.status) : '';
@@ -717,16 +720,19 @@ function renderAgentInfoPanel(
   const nameWidth = ctx.measureText(name).width;
   
   ctx.font = '10px "Inter", system-ui, sans-serif';
+  const providerWidth = provider ? ctx.measureText(provider).width + 8 : 0;
+  const modelWidth = model ? ctx.measureText(model).width + (provider ? 0 : 14) : 0;
   const workspaceWidth = workspace ? ctx.measureText(workspace).width + 14 : 0;
   const taskWidth = task ? ctx.measureText(task).width + 14 : 0;
   const statusWidth = ctx.measureText(status).width + 12;
   const actionLabelWidth = needsAction ? ctx.measureText('Action Required').width + 20 : 0;
 
-  const maxTextWidth = Math.max(nameWidth, workspaceWidth, taskWidth, statusWidth, actionLabelWidth);
+  const maxTextWidth = Math.max(nameWidth, providerWidth + modelWidth, workspaceWidth, taskWidth, statusWidth, actionLabelWidth);
   const panelWidth = Math.max(110, maxTextWidth + 28);
   
   // Calculate panel height based on content
   let panelHeight = 20; // Top padding + Name
+  if (model) panelHeight += provider ? 22 : 14; // Model line (22 if provider shown, 14 otherwise)
   if (workspace) panelHeight += 14;
   if (task) panelHeight += 14;
   panelHeight += 16; // Status line
@@ -801,6 +807,57 @@ function renderAgentInfoPanel(
   ctx.fillText(name, centerX, textY);
   textY += 14;
 
+  // Model (if exists) — badge with provider + model
+  if (model) {
+    const providerColors: Record<string, string> = {
+      'Anthropic': '#f59e0b',
+      'OpenAI': '#10b981',
+      'Google': '#3b82f6',
+      'Mistral': '#f43f5e',
+      'OpenRouter': '#8b5cf6',
+      'GitHub': '#9ca3af',
+      'OpenCode': '#f97316',
+      'xAI': '#ec4899',
+      'DeepSeek': '#06b6d4',
+      'Ollama': '#84cc16',
+    };
+    const color = providerColors[provider] || '#a78bfa';
+    
+    // Display: "Provider" on top, "Model" below
+    const line1 = provider || '';
+    const line2 = model;
+    ctx.font = 'bold 8px "Inter", system-ui, sans-serif';
+    const line1Width = ctx.measureText(line1).width;
+    const line2Width = ctx.measureText(line2).width;
+    const badgeWidth = Math.max(line1Width, line2Width) + 16;
+    const badgeX = centerX - badgeWidth / 2;
+    const badgeY = textY - 8;
+    const badgeHeight = provider ? 22 : 14;
+    
+    // Badge background
+    ctx.fillStyle = 'rgba(30, 30, 46, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 4);
+    ctx.fill();
+    
+    // Left colored border
+    ctx.fillStyle = color;
+    ctx.fillRect(badgeX, badgeY, 3, badgeHeight);
+    
+    // Line 1: Provider (if exists)
+    ctx.textAlign = 'center';
+    if (provider) {
+      ctx.fillStyle = color;
+      ctx.fillText(line1, centerX, textY);
+      textY += 10;
+    }
+    
+    // Line 2: Model
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(line2, centerX, textY);
+    textY += 14;
+  }
+
   // Workspace (if exists) — subtle, no emoji for cleaner look
   if (workspace) {
     ctx.font = '9px "Inter", system-ui, sans-serif';
@@ -872,6 +929,72 @@ function renderAgentInfoPanel(
 function getShortWorkspaceName(workspace: string): string {
   const parts = workspace.split(/[\\/]/);
   return parts[parts.length - 1] || workspace;
+}
+
+/**
+ * Get provider and model info from full model ID
+ */
+function getModelInfo(modelId: string): { provider: string; model: string } {
+  const parts = modelId.split('/');
+  const provider = parts[0] || '';
+  const modelIdOnly = parts.slice(1).join('/') || modelId;
+  
+  // Map provider IDs to display names
+  const providerNames: Record<string, string> = {
+    'anthropic': 'Anthropic',
+    'openai': 'OpenAI',
+    'google': 'Google',
+    'mistralai': 'Mistral',
+    'cohere': 'Cohere',
+    'xai': 'xAI',
+    'deepseek': 'DeepSeek',
+    'openrouter': 'OpenRouter',
+    'github': 'GitHub',
+    'opencode': 'OpenCode',
+    'ollama': 'Ollama',
+    'azure': 'Azure',
+    'aws': 'AWS',
+    'vertex': 'Vertex',
+  };
+  
+  const providerDisplay = providerNames[provider] || provider;
+  
+  // Map common model IDs to short names
+  const modelShortNames: Record<string, string> = {
+    'claude-sonnet-4-20250514': 'Sonnet 4',
+    'claude-4-sonnet-20250514': 'Sonnet 4',
+    'claude-opus-4-20250514': 'Opus 4',
+    'claude-4-haiku-20250514': 'Haiku 4',
+    'claude-3-5-sonnet-20240620': 'Sonnet 3.5',
+    'claude-3-opus-20240229': 'Opus 3',
+    'claude-3-sonnet-20240229': 'Sonnet 3',
+    'gpt-4o': 'GPT-4o',
+    'gpt-4o-mini': 'GPT-4o mini',
+    'gpt-4o-mini-20240718': 'GPT-4o mini',
+    'gpt-4-turbo': 'GPT-4 Turbo',
+    'gpt-4': 'GPT-4',
+    'gpt-3.5-turbo': 'GPT-3.5',
+    'gpt-3.5-turbo-0125': 'GPT-3.5',
+    'o1': 'O1',
+    'o1-mini': 'O1 Mini',
+    'o1-preview': 'O1 Preview',
+    'o3-mini': 'O3 Mini',
+    'o4-mini': 'O4 Mini',
+    'gemini-1.5-pro': 'Gemini Pro',
+    'gemini-1.5-flash': 'Gemini Flash',
+    'gemini-2.0-flash': 'Gemini 2.0',
+    'llama-3.1-405b': 'Llama 3.1 405B',
+    'llama-3.1-70b': 'Llama 3.1 70B',
+    'llama-3.1-8b': 'Llama 3.1 8B',
+    'llama-3-70b': 'Llama 3 70B',
+    'llama-3-8b': 'Llama 3 8B',
+    'mixtral-8x7b': 'Mixtral 8x7B',
+    'mixtral-8x22b': 'Mixtral 8x22B',
+  };
+  
+  const modelDisplay = modelShortNames[modelIdOnly] || modelIdOnly.charAt(0).toUpperCase() + modelIdOnly.slice(1);
+  
+  return { provider: providerDisplay, model: modelDisplay };
 }
 
 /**

@@ -3,12 +3,47 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { createSession } from '@/lib/opencode/client';
 import { addRecentWorkspace } from '@/lib/workspace/recent';
-import { getAgentPositionInRoom } from '@/lib/game/renderer';
+
+// Layout constants (must match renderer.ts)
+const ROOM_PADDING = 2;
+const AGENT_SPACING = 6;
+const BASE_ROOM_HEIGHT = 8;
+const ROOM_MARGIN = 2;
+const TILE_SIZE = 32;
 
 // No limit on agents per workspace - workspace room grows dynamically
 
+// Calculate the actual room position, respecting custom workspace positions
+function getWorkspaceRoomPosition(workspace: { positionX: number | null; positionY: number | null; roomIndex: number | null }): { x: number; y: number } {
+  if (workspace.positionX != null && workspace.positionY != null) {
+    return { x: workspace.positionX, y: workspace.positionY };
+  }
+  // Default position calculation (matches renderer.ts getDefaultRoomPosition)
+  const roomIndex = workspace.roomIndex ?? 0;
+  const startX = 3;
+  const startY = 6;
+  let currentY = startY;
+  for (let i = 0; i < roomIndex; i++) {
+    currentY += BASE_ROOM_HEIGHT + ROOM_MARGIN;
+  }
+  return { x: startX, y: currentY };
+}
+
+// Calculate agent position for a specific slot using the workspace's actual position
+function calcAgentPosition(roomPos: { x: number; y: number }, slotIndex: number): { x: number; y: number } {
+  const agentY = (roomPos.y + BASE_ROOM_HEIGHT - 5) * TILE_SIZE;
+  const startX = (roomPos.x + ROOM_PADDING) * TILE_SIZE + (AGENT_SPACING * TILE_SIZE) / 2 - TILE_SIZE / 2;
+  return {
+    x: startX + slotIndex * AGENT_SPACING * TILE_SIZE,
+    y: agentY,
+  };
+}
+
 // Get the next available slot in a workspace room
-async function getNextAvailableSlotInWorkspace(workspaceId: string, roomIndex: number): Promise<{ deskIndex: number; x: number; y: number }> {
+async function getNextAvailableSlotInWorkspace(
+  workspaceId: string,
+  workspace: { positionX: number | null; positionY: number | null; roomIndex: number | null }
+): Promise<{ deskIndex: number; x: number; y: number }> {
   // Get all agents in this workspace
   const existingAgents = await prisma.agent.findMany({
     where: { workspaceId },
@@ -16,7 +51,6 @@ async function getNextAvailableSlotInWorkspace(workspaceId: string, roomIndex: n
   });
 
   const occupiedSlots = new Set(existingAgents.map(a => a.deskIndex).filter(d => d !== null));
-  const totalAgentsAfterAdd = existingAgents.length + 1;
 
   // Find first available slot (no limit)
   let slotIndex = 0;
@@ -24,8 +58,9 @@ async function getNextAvailableSlotInWorkspace(workspaceId: string, roomIndex: n
     slotIndex++;
   }
   
-  // Get position for this slot, considering total agents for proper spacing
-  const pos = getAgentPositionInRoom(roomIndex, slotIndex, totalAgentsAfterAdd);
+  // Get position using workspace's actual current position
+  const roomPos = getWorkspaceRoomPosition(workspace);
+  const pos = calcAgentPosition(roomPos, slotIndex);
   return {
     deskIndex: slotIndex,
     x: pos.x,
@@ -75,10 +110,10 @@ export async function POST(request: NextRequest) {
 
     // No agent limit per workspace - room grows dynamically
 
-    // Get agent position in workspace room
+    // Get agent position in workspace room (uses workspace's actual current position)
     const slotAssignment = await getNextAvailableSlotInWorkspace(
       workspaceId, 
-      workspaceRecord.roomIndex ?? 0
+      workspaceRecord
     );
     const agentX = slotAssignment.x;
     const agentY = slotAssignment.y;

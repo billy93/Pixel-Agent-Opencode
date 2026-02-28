@@ -5,15 +5,17 @@ import GameCanvas from '@/components/canvas/GameCanvas';
 import AuthForm from '@/components/auth/AuthForm';
 import AgentPanel from '@/components/game/AgentPanel';
 import ChatPanel from '@/components/game/ChatPanel';
+import GlobalChat from '@/components/game/GlobalChat';
 import FileManager from '@/components/game/FileManager';
 import MobileControls from '@/components/game/MobileControls';
 import OpenCodeServerWarning from '@/components/ui/OpenCodeServerWarning';
 import { WorkspaceRoom, GameAgent } from '@/types';
-import { LogOut, Users, User as UserIcon, MessageSquare, Cpu, X, CheckCircle, Bot, FolderOpen } from 'lucide-react';
+import { LogOut, Users, User as UserIcon, MessageSquare, MessageCircle, Cpu, X, CheckCircle, Bot, FolderOpen } from 'lucide-react';
 import { useModels } from '@/lib/models/use-models';
 import { useOpenCodeServer } from '@/lib/opencode/use-opencode-server';
 import { useIsMobile } from '@/lib/hooks/use-is-mobile';
 import { useSocket } from '@/lib/hooks/use-socket';
+import { useGlobalChat } from '@/lib/hooks/use-global-chat';
 import { ProviderModel, formatContextWindow } from '@/lib/models/available-models';
 import { InputState, setTouchDirection } from '@/lib/game/input';
 
@@ -41,6 +43,7 @@ export default function Home() {
   const [agentsNeedingAction, setAgentsNeedingAction] = useState<Set<string>>(new Set());
   const [showQuickModelSelector, setShowQuickModelSelector] = useState(false);
   const [dismissedServerWarning, setDismissedServerWarning] = useState(false);
+  const [showGlobalChat, setShowGlobalChat] = useState(false);
   const [activeFileManager, setActiveFileManager] = useState<{
     id: string;
     name: string;
@@ -58,6 +61,19 @@ export default function Home() {
   const { isConnected: socketConnected, otherPlayers, onlineCount, sendPosition } = useSocket({
     userId: user?.id || null,
     initialPosition: user ? { x: user.x, y: user.y, direction: user.direction, avatar: user.avatar } : undefined,
+  });
+
+  // Global chat
+  const {
+    messages: globalChatMessages,
+    sendMessage: sendGlobalMessage,
+    sendEmote: sendGlobalEmote,
+    unreadCount: chatUnreadCount,
+    clearUnread: clearChatUnread,
+    isConnected: chatConnected,
+  } = useGlobalChat({
+    userId: user?.id || null,
+    isOpen: showGlobalChat,
   });
 
   // Set agent panel open by default on desktop
@@ -276,12 +292,51 @@ export default function Home() {
     setActiveFileManager(workspace);
   }, []);
 
+  // Toggle global chat
+  const handleToggleGlobalChat = useCallback(() => {
+    setShowGlobalChat(prev => {
+      if (!prev) clearChatUnread();
+      return !prev;
+    });
+  }, [clearChatUnread]);
+
   // Mobile touch controls
   const handleTouchDirection = useCallback((direction: string | null) => {
     if (gameInputRef.current) {
       setTouchDirection(gameInputRef.current, direction);
     }
   }, []);
+
+  // Handle workspace drag move — persist to server
+  const handleWorkspaceMoved = useCallback(async (workspaceId: string, positionX: number, positionY: number) => {
+    try {
+      // Optimistically update local state
+      setWorkspaces(prev => prev.map(ws => 
+        ws.id === workspaceId 
+          ? { ...ws, positionX, positionY } 
+          : ws
+      ));
+
+      const response = await fetch(`/api/workspaces/${workspaceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionX, positionY }),
+      });
+      
+      if (response.ok) {
+        // Refetch to get updated agent positions
+        fetchAgents();
+        fetchWorkspaces();
+      } else {
+        console.error('Failed to save workspace position');
+        // Revert on error
+        fetchWorkspaces();
+      }
+    } catch (error) {
+      console.error('Failed to save workspace position:', error);
+      fetchWorkspaces();
+    }
+  }, [fetchAgents, fetchWorkspaces]);
 
   const handleMobileAction = useCallback((action: 'chat' | 'model') => {
     if (!nearbyAgent) return;
@@ -310,6 +365,8 @@ export default function Home() {
       if (e.key === 'Escape') {
         if (showQuickModelSelector) {
           setShowQuickModelSelector(false);
+        } else if (showGlobalChat) {
+          setShowGlobalChat(false);
         } else if (activeFileManager) {
           setActiveFileManager(null);
         } else if (activeChat) {
@@ -323,7 +380,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nearbyAgent, activeChat, showQuickModelSelector, activeFileManager, showAgentPanel, isMobile]);
+  }, [nearbyAgent, activeChat, showQuickModelSelector, showGlobalChat, activeFileManager, showAgentPanel, isMobile]);
 
   // Cleanup throttle timer on unmount
   useEffect(() => {
@@ -347,7 +404,7 @@ export default function Home() {
   }
 
   // Check if any fullscreen panel is open (mobile)
-  const hasFullscreenPanel = isMobile && (!!currentActiveChat || !!activeFileManager || showAgentPanel || showQuickModelSelector);
+  const hasFullscreenPanel = isMobile && (!!currentActiveChat || !!activeFileManager || showAgentPanel || showQuickModelSelector || showGlobalChat);
 
   return (
     <div className="fixed inset-0 w-full h-full overflow-hidden bg-[#1e272e]">
@@ -360,6 +417,7 @@ export default function Home() {
           agentsNeedingAction={agentsNeedingAction}
           onMove={handleMove}
           onAgentProximity={handleAgentProximity}
+          onWorkspaceMoved={handleWorkspaceMoved}
           proximityThreshold={2.5}
           inputRef={gameInputRef}
         />
@@ -506,6 +564,29 @@ export default function Home() {
             </div>
           )}
           
+          {/* Global Chat Panel - Bottom Left */}
+          {showGlobalChat && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '70px',
+                left: '24px',
+                zIndex: 99999,
+              }}
+            >
+              <GlobalChat
+                messages={globalChatMessages}
+                currentUserId={user.id}
+                currentUsername={user.username}
+                onSendMessage={sendGlobalMessage}
+                onSendEmote={sendGlobalEmote}
+                onClose={() => setShowGlobalChat(false)}
+                isConnected={chatConnected}
+                onlineCount={onlineCount}
+              />
+            </div>
+          )}
+
           {/* HUD - Bottom Left (Control Info) */}
           <div 
             style={{ 
@@ -561,6 +642,24 @@ export default function Home() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2">
+                  <button
+                    onClick={handleToggleGlobalChat}
+                    className={`relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                      showGlobalChat 
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+                        : 'bg-[#57606f]/50 hover:bg-[#57606f] text-gray-200'
+                    }`}
+                    title="Global Chat"
+                  >
+                    <MessageCircle size={16} />
+                    <span>Chat</span>
+                    {chatUnreadCount > 0 && !showGlobalChat && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center px-1 font-bold animate-pulse">
+                        {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                      </span>
+                    )}
+                  </button>
+
                   <button
                     onClick={() => setShowAgentPanel(!showAgentPanel)}
                     className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
@@ -666,6 +765,24 @@ export default function Home() {
                   </button>
                 )}
 
+                {/* Global Chat button */}
+                <button
+                  onClick={handleToggleGlobalChat}
+                  className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-[10px] font-semibold transition-all ${
+                    showGlobalChat 
+                      ? 'bg-emerald-500/30 text-emerald-300' 
+                      : 'text-slate-400 active:bg-slate-700/50'
+                  }`}
+                >
+                  <MessageCircle size={18} />
+                  <span>Chat</span>
+                  {chatUnreadCount > 0 && !showGlobalChat && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-red-500 rounded-full text-[8px] text-white flex items-center justify-center px-0.5 font-bold animate-pulse">
+                      {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                    </span>
+                  )}
+                </button>
+
                 {/* Logout */}
                 <button
                   onClick={handleLogout}
@@ -675,6 +792,23 @@ export default function Home() {
                   <span>Logout</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Mobile Global Chat — Fullscreen overlay */}
+          {showGlobalChat && (
+            <div className="fixed inset-0 z-[99999] bg-slate-900/98">
+              <GlobalChat
+                messages={globalChatMessages}
+                currentUserId={user.id}
+                currentUsername={user.username}
+                onSendMessage={sendGlobalMessage}
+                onSendEmote={sendGlobalEmote}
+                onClose={() => setShowGlobalChat(false)}
+                isConnected={chatConnected}
+                onlineCount={onlineCount}
+                isMobile
+              />
             </div>
           )}
 

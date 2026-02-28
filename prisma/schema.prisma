@@ -21,9 +21,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  agents     Agent[]
-  workspaces Workspace[]
-  settings   Settings?
+  agents       Agent[]
+  workspaces   Workspace[]
+  settings     Settings?
+  chatMessages GlobalChatMessage[]
+}
+
+// Global chat messages between users in the virtual office
+model GlobalChatMessage {
+  id        String   @id @default(cuid())
+  content   String
+  type      String   @default("text") // text, system, emote
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // Workspace represents a "room" in the virtual office

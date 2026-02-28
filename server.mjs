@@ -159,6 +159,83 @@ app.prepare().then(() => {
       });
     });
 
+    // ===== Global Chat =====
+
+    // Handle incoming chat message
+    socket.on('chat:send', async (data) => {
+      const { content, type } = data;
+      if (!content || typeof content !== 'string' || content.trim().length === 0) return;
+      if (content.length > 1000) return; // Max message length
+
+      const messageType = type === 'emote' ? 'emote' : 'text';
+
+      try {
+        const { PrismaClient } = await import('@prisma/client');
+        const prismaChat = new PrismaClient();
+
+        const msg = await prismaChat.globalChatMessage.create({
+          data: {
+            content: content.trim(),
+            type: messageType,
+            userId,
+          },
+          include: {
+            user: { select: { id: true, username: true } },
+          },
+        });
+
+        await prismaChat.$disconnect();
+
+        const formatted = {
+          id: msg.id,
+          content: msg.content,
+          type: msg.type,
+          userId: msg.user.id,
+          username: msg.user.username,
+          createdAt: msg.createdAt.toISOString(),
+        };
+
+        // Broadcast to ALL connected clients (including sender)
+        io.emit('chat:message', formatted);
+      } catch (err) {
+        console.error(`[Socket.IO] Failed to save chat message:`, err.message);
+        socket.emit('chat:error', { error: 'Failed to send message' });
+      }
+    });
+
+    // Handle request for recent chat history
+    socket.on('chat:history', async (data) => {
+      const limit = Math.min(data?.limit || 50, 200);
+      try {
+        const { PrismaClient } = await import('@prisma/client');
+        const prismaChat = new PrismaClient();
+
+        const messages = await prismaChat.globalChatMessage.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          include: {
+            user: { select: { id: true, username: true } },
+          },
+        });
+
+        await prismaChat.$disconnect();
+
+        const formatted = messages.reverse().map((msg) => ({
+          id: msg.id,
+          content: msg.content,
+          type: msg.type,
+          userId: msg.user.id,
+          username: msg.user.username,
+          createdAt: msg.createdAt.toISOString(),
+        }));
+
+        socket.emit('chat:history', { messages: formatted });
+      } catch (err) {
+        console.error(`[Socket.IO] Failed to fetch chat history:`, err.message);
+        socket.emit('chat:error', { error: 'Failed to load history' });
+      }
+    });
+
     // Handle disconnect
     socket.on('disconnect', (reason) => {
       console.log(`[Socket.IO] Player disconnected: ${username} (${reason})`);

@@ -40,10 +40,76 @@ export async function DELETE(
       }
     }
 
+    // Remember workspace info before deletion for repositioning
+    const workspaceId = agent.workspaceId;
+
     // Delete agent from database
     await prisma.agent.delete({
       where: { id: agentId },
     });
+
+    // Recalculate positions for remaining agents in the same workspace
+    if (workspaceId) {
+      try {
+        const workspace = await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          include: {
+            agents: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        });
+
+        if (workspace && workspace.agents.length > 0) {
+          const ROOM_PADDING = 2;
+          const AGENT_SPACING = 6;
+          const BASE_ROOM_HEIGHT = 8;
+          const TILE_SIZE = 32;
+
+          // Use custom position if available, otherwise calculate default
+          let roomX: number;
+          let roomY: number;
+
+          if (workspace.positionX != null && workspace.positionY != null) {
+            roomX = workspace.positionX;
+            roomY = workspace.positionY;
+          } else {
+            // Calculate default room position based on roomIndex
+            const roomIndex = workspace.roomIndex ?? 0;
+            const startX = 3;
+            const startY = 6;
+            let currentY = startY;
+            for (let i = 0; i < roomIndex; i++) {
+              currentY += BASE_ROOM_HEIGHT + 2; // ROOM_MARGIN = 2
+            }
+            roomX = startX;
+            roomY = currentY;
+          }
+
+          const totalAgents = workspace.agents.length;
+          const agentY = (roomY + BASE_ROOM_HEIGHT - 5) * TILE_SIZE;
+          const startX = (roomX + ROOM_PADDING) * TILE_SIZE + (AGENT_SPACING * TILE_SIZE) / 2 - TILE_SIZE / 2;
+
+          // Reassign deskIndex sequentially and recalculate x/y
+          for (let i = 0; i < totalAgents; i++) {
+            const remainingAgent = workspace.agents[i];
+            const agentX = startX + i * AGENT_SPACING * TILE_SIZE;
+
+            await prisma.agent.update({
+              where: { id: remainingAgent.id },
+              data: {
+                deskIndex: i,
+                x: agentX,
+                y: agentY,
+              },
+            });
+          }
+        }
+      } catch (reposError) {
+        console.error('Failed to reposition remaining agents:', reposError);
+        // Don't fail the deletion if repositioning fails
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

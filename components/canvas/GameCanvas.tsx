@@ -318,6 +318,7 @@ export default function GameCanvas({
           status: agent.status as AgentStatus,
           workspace: agent.workspace?.path || undefined,
           color: agent.workspace?.color || '#4a9eff',
+          model: agent.model || undefined,
           currentTask: agent.currentTask || undefined,
           needsAction: needingAction.has(agent.id),
         };

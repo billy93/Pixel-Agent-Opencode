@@ -1,10 +1,110 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Bot, Plus, Trash2, Send, FolderGit2, ChevronDown, Zap, Clock, AlertCircle, Pencil, Check, X, Cpu, Users, Home, FolderPlus, Brain, FolderOpen } from 'lucide-react';
 import { GameAgent, WorkspaceRoom } from '@/types';
 import { useModels, getDefaultModelId } from '@/lib/models/use-models';
 import { ProviderModel, formatContextWindow, getModelsByProvider } from '@/lib/models/available-models';
+
+// Portal-based dropdown component to escape overflow:hidden containers
+function PortalModelDropdown({
+  triggerRef,
+  models,
+  modelsByProvider,
+  selectedModel,
+  onSelect,
+  onClose,
+}: {
+  triggerRef: React.RefObject<HTMLElement | null>;
+  models: ProviderModel[];
+  modelsByProvider: Record<string, { providerName: string; models: ProviderModel[] }>;
+  selectedModel: string;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
+
+  // Calculate position based on trigger element
+  useEffect(() => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const dropdownHeight = 220; // approximate max height
+      const viewportHeight = window.innerHeight;
+      
+      // Show above if not enough space below
+      const spaceBelow = viewportHeight - rect.bottom;
+      const showAbove = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
+      
+      setPosition({
+        top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, [triggerRef]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [onClose, triggerRef]);
+
+  return createPortal(
+    <div
+      ref={dropdownRef}
+      className="bg-slate-800 border border-slate-600/50 rounded-xl p-1.5 max-h-[220px] overflow-y-auto custom-scrollbar shadow-2xl"
+      style={{
+        position: 'fixed',
+        top: position.top,
+        left: position.left,
+        width: position.width,
+        zIndex: 999999,
+      }}
+    >
+      {Object.entries(modelsByProvider).map(([providerId, group]) => (
+        <div key={providerId}>
+          <div className="px-2 py-1 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">{group.providerName}</div>
+          {group.models.map((model) => (
+            <button
+              key={model.id}
+              type="button"
+              onClick={() => { onSelect(model.id); onClose(); }}
+              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between gap-2 ${
+                selectedModel === model.id
+                  ? 'bg-indigo-500/20 text-indigo-300'
+                  : 'hover:bg-slate-700/50 text-slate-300'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium truncate">{model.name}</span>
+                  {model.capabilities.reasoning && (
+                    <span className="px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[8px] shrink-0 flex items-center gap-0.5">
+                      <Brain size={7} />R
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-slate-500 mt-0.5">Ctx: {formatContextWindow(model.contextWindow)}</div>
+              </div>
+              {selectedModel === model.id && <Check size={12} className="text-indigo-400 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>,
+    document.body
+  );
+}
 
 interface AgentPanelProps {
   onAgentCreated?: () => void;
@@ -55,6 +155,8 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
   const editInputRef = useRef<HTMLInputElement>(null);
   const addModelDropdownRef = useRef<HTMLDivElement>(null);
   const editModelDropdownRef = useRef<HTMLDivElement>(null);
+  const addModelTriggerRef = useRef<HTMLButtonElement>(null);
+  const editModelTriggerRef = useRef<HTMLButtonElement>(null);
 
   const totalAgents = useMemo(() => {
     return workspaces.reduce((sum, ws) => sum + ws.agents.length, 0);
@@ -128,14 +230,14 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
     }
   }, [editingAgentId]);
 
-  // Close model dropdowns when clicking outside
+  // Close model dropdowns when clicking outside (for non-portal fallback)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (addModelDropdownRef.current && !addModelDropdownRef.current.contains(e.target as Node)) {
-        setShowAddModelDropdown(false);
+        // Portal handles its own click-outside
       }
       if (editModelDropdownRef.current && !editModelDropdownRef.current.contains(e.target as Node)) {
-        setShowEditModelDropdown(false);
+        // Portal handles its own click-outside
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -619,6 +721,7 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
                       />
                       <div className="relative" ref={addModelDropdownRef}>
                         <button
+                          ref={addModelTriggerRef}
                           type="button"
                           onClick={() => setShowAddModelDropdown(!showAddModelDropdown)}
                           className="w-full flex items-center justify-between px-3 py-2 bg-slate-700/50 text-white rounded-lg border border-slate-600/50 hover:border-slate-500/50 text-xs cursor-pointer transition-colors"
@@ -633,38 +736,14 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
                           <ChevronDown size={10} className={`text-slate-400 shrink-0 transition-transform ${showAddModelDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showAddModelDropdown && (
-                          <div className="absolute z-50 mt-1 w-full bg-slate-800 border border-slate-600/50 rounded-xl p-1.5 max-h-[200px] overflow-y-auto custom-scrollbar shadow-xl">
-                            {Object.entries(modelsByProvider).map(([providerId, group]) => (
-                              <div key={providerId}>
-                                <div className="px-2 py-1 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">{group.providerName}</div>
-                                {group.models.map((model) => (
-                                  <button
-                                    key={model.id}
-                                    type="button"
-                                    onClick={() => { setNewAgentModel(model.id); setShowAddModelDropdown(false); }}
-                                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between gap-2 ${
-                                      newAgentModel === model.id
-                                        ? 'bg-indigo-500/20 text-indigo-300'
-                                        : 'hover:bg-slate-700/50 text-slate-300'
-                                    }`}
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-medium truncate">{model.name}</span>
-                                        {model.capabilities.reasoning && (
-                                          <span className="px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[8px] shrink-0 flex items-center gap-0.5">
-                                            <Brain size={7} />R
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="text-[9px] text-slate-500 mt-0.5">Ctx: {formatContextWindow(model.contextWindow)}</div>
-                                    </div>
-                                    {newAgentModel === model.id && <Check size={12} className="text-indigo-400 shrink-0" />}
-                                  </button>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
+                          <PortalModelDropdown
+                            triggerRef={addModelTriggerRef}
+                            models={models}
+                            modelsByProvider={modelsByProvider}
+                            selectedModel={newAgentModel}
+                            onSelect={(id) => setNewAgentModel(id)}
+                            onClose={() => setShowAddModelDropdown(false)}
+                          />
                         )}
                       </div>
                       <div className="flex gap-2">
@@ -736,6 +815,7 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
                                         />
                                         <div className="relative" ref={editModelDropdownRef}>
                                           <button
+                                            ref={editModelTriggerRef}
                                             type="button"
                                             onClick={() => setShowEditModelDropdown(!showEditModelDropdown)}
                                             className="w-full flex items-center justify-between px-2 py-1 bg-slate-600/50 text-white rounded-lg border border-slate-500/50 hover:border-slate-400/50 text-[10px] cursor-pointer transition-colors"
@@ -750,38 +830,14 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
                                             <ChevronDown size={9} className={`text-slate-400 shrink-0 transition-transform ${showEditModelDropdown ? 'rotate-180' : ''}`} />
                                           </button>
                                           {showEditModelDropdown && (
-                                            <div className="absolute z-50 mt-1 w-full bg-slate-800 border border-slate-600/50 rounded-xl p-1.5 max-h-[180px] overflow-y-auto custom-scrollbar shadow-xl">
-                                              {Object.entries(modelsByProvider).map(([providerId, group]) => (
-                                                <div key={providerId}>
-                                                  <div className="px-2 py-1 text-[8px] font-semibold text-slate-500 uppercase tracking-wider">{group.providerName}</div>
-                                                  {group.models.map((model) => (
-                                                    <button
-                                                      key={model.id}
-                                                      type="button"
-                                                      onClick={() => { setEditModel(model.id); setShowEditModelDropdown(false); }}
-                                                      className={`w-full text-left px-2 py-1.5 rounded-lg text-[10px] transition-colors flex items-center justify-between gap-1 ${
-                                                        editModel === model.id
-                                                          ? 'bg-indigo-500/20 text-indigo-300'
-                                                          : 'hover:bg-slate-700/50 text-slate-300'
-                                                      }`}
-                                                    >
-                                                      <div className="min-w-0">
-                                                        <div className="flex items-center gap-1">
-                                                          <span className="font-medium truncate">{model.name}</span>
-                                                          {model.capabilities.reasoning && (
-                                                            <span className="px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[7px] shrink-0 flex items-center gap-0.5">
-                                                              <Brain size={6} />R
-                                                            </span>
-                                                          )}
-                                                        </div>
-                                                        <div className="text-[8px] text-slate-500">Ctx: {formatContextWindow(model.contextWindow)}</div>
-                                                      </div>
-                                                      {editModel === model.id && <Check size={10} className="text-indigo-400 shrink-0" />}
-                                                    </button>
-                                                  ))}
-                                                </div>
-                                              ))}
-                                            </div>
+                                            <PortalModelDropdown
+                                              triggerRef={editModelTriggerRef}
+                                              models={models}
+                                              modelsByProvider={modelsByProvider}
+                                              selectedModel={editModel}
+                                              onSelect={(id) => setEditModel(id)}
+                                              onClose={() => setShowEditModelDropdown(false)}
+                                            />
                                           )}
                                         </div>
                                         <div className="flex gap-1">
