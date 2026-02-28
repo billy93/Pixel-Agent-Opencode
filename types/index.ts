@@ -35,8 +35,15 @@ export interface WorkspaceRoom {
   name: string;
   color: string;
   roomIndex: number | null;
+  positionX: number | null; // Custom X position in tiles (null = use default)
+  positionY: number | null; // Custom Y position in tiles (null = use default)
   userId: string;
   agents: GameAgent[];
+  // Owner info (for multiplayer - showing who owns which workspace)
+  user?: {
+    id: string;
+    username: string;
+  };
 }
 
 export interface Position {

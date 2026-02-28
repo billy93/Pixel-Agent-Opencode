@@ -50,7 +50,7 @@ const CARPET_ZONES = [
 // Each workspace (folder path) = 1 shared room
 // Room size is DYNAMIC based on number of agents
 // No limit on agents per workspace
-const BASE_ROOM_HEIGHT = 8;   // Room height (tiles)
+export const BASE_ROOM_HEIGHT = 8;   // Room height (tiles)
 const ROOM_MARGIN = 2;        // tiles between rooms
 const AGENT_SPACING = 6;      // tiles between each agent (center to center) - 192px apart
 const DESK_WIDTH = 2;         // Each desk sprite is 2 tiles wide
@@ -65,8 +65,8 @@ export function getDynamicRoomWidth(agentCount: number): number {
   return agentsWidth + ROOM_PADDING * 2;
 }
 
-// Calculate room positions - workspaces laid out vertically (stacked)
-export function getRoomPosition(roomIndex: number, workspaces: WorkspaceRoom[] = []): { x: number; y: number } {
+// Calculate default room position (used when no custom position is set)
+export function getDefaultRoomPosition(roomIndex: number): { x: number; y: number } {
   const startX = 3;
   const startY = 6;
   
@@ -80,6 +80,23 @@ export function getRoomPosition(roomIndex: number, workspaces: WorkspaceRoom[] =
     x: startX,
     y: currentY,
   };
+}
+
+// Calculate room positions - uses custom position if available, otherwise default stacked layout
+export function getRoomPosition(roomIndex: number, workspaces: WorkspaceRoom[] = []): { x: number; y: number } {
+  // Find the workspace with this roomIndex to check for custom position
+  const workspace = workspaces.find(ws => ws.roomIndex === roomIndex);
+  
+  if (workspace?.positionX != null && workspace?.positionY != null) {
+    // Use custom stored position
+    return {
+      x: workspace.positionX,
+      y: workspace.positionY,
+    };
+  }
+  
+  // Fall back to default calculated position
+  return getDefaultRoomPosition(roomIndex);
 }
 
 // Get the SHARED DESK position in a workspace room - DYNAMIC width
@@ -179,7 +196,65 @@ function isInWorkspaceRoom(x: number, y: number, workspaces: WorkspaceRoom[]): W
   return null;
 }
 
-export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces: WorkspaceRoom[] = []) {
+// Drag state for workspace rooms
+export interface WorkspaceDragState {
+  isDragging: boolean;
+  workspaceId: string | null;
+  startWorldX: number;
+  startWorldY: number;
+  startRoomX: number; // Room position in tiles at drag start
+  startRoomY: number;
+  currentWorldX: number;
+  currentWorldY: number;
+  hoveredWorkspaceId: string | null; // For cursor feedback
+}
+
+export function createDragState(): WorkspaceDragState {
+  return {
+    isDragging: false,
+    workspaceId: null,
+    startWorldX: 0,
+    startWorldY: 0,
+    startRoomX: 0,
+    startRoomY: 0,
+    currentWorldX: 0,
+    currentWorldY: 0,
+    hoveredWorkspaceId: null,
+  };
+}
+
+// Hit test: find which workspace room is at a given world position (in pixels)
+export function hitTestWorkspaceRoom(
+  worldX: number,
+  worldY: number,
+  workspaces: WorkspaceRoom[]
+): WorkspaceRoom | null {
+  const tileX = worldX / TILE_SIZE;
+  const tileY = worldY / TILE_SIZE;
+  return isInWorkspaceRoom(tileX, tileY, workspaces);
+}
+
+// Get the current drag-adjusted room position for a workspace
+export function getDragAdjustedRoomPosition(
+  ws: WorkspaceRoom,
+  dragState: WorkspaceDragState,
+  workspaces: WorkspaceRoom[]
+): { x: number; y: number } {
+  if (dragState.isDragging && dragState.workspaceId === ws.id && ws.roomIndex !== null) {
+    // Calculate offset in tiles from drag start to current mouse position
+    const deltaX = (dragState.currentWorldX - dragState.startWorldX) / TILE_SIZE;
+    const deltaY = (dragState.currentWorldY - dragState.startWorldY) / TILE_SIZE;
+    
+    return {
+      x: Math.round(dragState.startRoomX + deltaX),
+      y: Math.round(dragState.startRoomY + deltaY),
+    };
+  }
+  
+  return getRoomPosition(ws.roomIndex ?? 0, workspaces);
+}
+
+export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces: WorkspaceRoom[] = [], dragState?: WorkspaceDragState) {
   const { ctx, camera } = engine;
 
   // Calculate visible tiles with some padding
@@ -194,6 +269,18 @@ export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces
   gradient.addColorStop(1, '#16213e');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  // Pre-compute workspace room bounds for tile rendering (use drag-adjusted positions)
+  const workspaceRoomBounds = workspaces
+    .filter(ws => ws.roomIndex !== null)
+    .map(ws => {
+      const agentCount = ws.agents?.length || 1;
+      const roomPos = dragState
+        ? getDragAdjustedRoomPosition(ws, dragState, workspaces)
+        : getRoomPosition(ws.roomIndex!, workspaces);
+      const roomWidth = getDynamicRoomWidth(agentCount);
+      return { ws, roomPos, roomWidth };
+    });
 
   // Render floor tiles
   for (let y = startY; y < endY; y++) {
@@ -210,7 +297,16 @@ export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces
       const isWall = x === 0 || x === OFFICE_WIDTH - 1 || y === 0 || y === OFFICE_HEIGHT - 1;
       const isGlassWall = !isWall && (x === 1 || x === OFFICE_WIDTH - 2) && y > 1 && y < OFFICE_HEIGHT - 2;
       const isCarpet = isInCarpetZone(x, y);
-      const workspaceRoom = isInWorkspaceRoom(x, y, workspaces);
+      
+      // Check workspace room using drag-adjusted bounds
+      let workspaceRoom: WorkspaceRoom | null = null;
+      for (const { ws, roomPos, roomWidth } of workspaceRoomBounds) {
+        if (x >= roomPos.x && x < roomPos.x + roomWidth &&
+            y >= roomPos.y && y < roomPos.y + BASE_ROOM_HEIGHT) {
+          workspaceRoom = ws;
+          break;
+        }
+      }
 
       if (isWall) {
         ctx.drawImage(sprites.wall, screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
@@ -220,7 +316,8 @@ export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces
         // Workspace room floor - use carpet with workspace color tint
         ctx.drawImage(sprites.carpet, screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
         // Add subtle color overlay for workspace
-        ctx.fillStyle = workspaceRoom.color + '15'; // 15% opacity
+        const isDraggingThis = dragState?.isDragging && dragState.workspaceId === workspaceRoom.id;
+        ctx.fillStyle = workspaceRoom.color + (isDraggingThis ? '30' : '15'); // More visible when dragging
         ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
       } else if (isCarpet) {
         ctx.drawImage(sprites.carpet, screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
@@ -231,26 +328,37 @@ export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces
   }
 
   // Render workspace room borders and labels
-  renderWorkspaceRooms(ctx, camera, sprites, workspaces);
+  renderWorkspaceRooms(ctx, camera, sprites, workspaces, dragState);
 
   // Render desks inside workspace rooms - one desk per agent, spaced apart
   for (const ws of workspaces) {
     if (ws.roomIndex === null) continue;
     const agentCount = ws.agents?.length || 1;
-    const deskPositions = getDeskPositionsInRoom(ws.roomIndex, agentCount, workspaces);
     
-    // Render one desk per agent position
-    for (const deskPos of deskPositions) {
-      const deskX = deskPos.x * TILE_SIZE;
-      const deskY = deskPos.y * TILE_SIZE;
-      const screenPos = worldToScreen(deskX, deskY, camera);
+    // Use drag-adjusted position for desk rendering
+    const roomPos = dragState
+      ? getDragAdjustedRoomPosition(ws, dragState, workspaces)
+      : getRoomPosition(ws.roomIndex, workspaces);
+    
+    const deskY = roomPos.y + BASE_ROOM_HEIGHT - 3;
+    const startDeskX = roomPos.x + ROOM_PADDING + (AGENT_SPACING - DESK_WIDTH) / 2;
+    
+    for (let i = 0; i < agentCount; i++) {
+      const deskX = (startDeskX + i * AGENT_SPACING) * TILE_SIZE;
+      const deskPosY = deskY * TILE_SIZE;
+      const screenPos = worldToScreen(deskX, deskPosY, camera);
       
       if (screenPos.x < -TILE_SIZE * 2 || screenPos.x > ctx.canvas.width ||
           screenPos.y < -TILE_SIZE * 2 || screenPos.y > ctx.canvas.height) {
         continue;
       }
 
+      // Add transparency when dragging
+      if (dragState?.isDragging && dragState.workspaceId === ws.id) {
+        ctx.globalAlpha = 0.7;
+      }
       ctx.drawImage(sprites.desk, screenPos.x, screenPos.y, TILE_SIZE * 2, TILE_SIZE * 2);
+      ctx.globalAlpha = 1.0;
     }
   }
 
@@ -265,13 +373,16 @@ function renderWorkspaceRooms(
   ctx: CanvasRenderingContext2D,
   camera: { x: number; y: number },
   sprites: AllSprites,
-  workspaces: WorkspaceRoom[]
+  workspaces: WorkspaceRoom[],
+  dragState?: WorkspaceDragState
 ) {
   for (const ws of workspaces) {
     if (ws.roomIndex === null) continue;
     
     const agentCount = ws.agents?.length || 1;
-    const roomPos = getRoomPosition(ws.roomIndex, workspaces);
+    const roomPos = dragState
+      ? getDragAdjustedRoomPosition(ws, dragState, workspaces)
+      : getRoomPosition(ws.roomIndex, workspaces);
     const roomWidth = getDynamicRoomWidth(agentCount);
     const screenPos = worldToScreen(roomPos.x * TILE_SIZE, roomPos.y * TILE_SIZE, camera);
     const roomWidthPx = roomWidth * TILE_SIZE;
@@ -284,9 +395,80 @@ function renderWorkspaceRooms(
     }
 
     // Draw room border
-    ctx.strokeStyle = ws.color;
-    ctx.lineWidth = 3;
-    ctx.strokeRect(screenPos.x, screenPos.y, roomWidthPx, roomHeightPx);
+    const isDraggingThis = dragState?.isDragging && dragState.workspaceId === ws.id;
+    const isHovered = dragState?.hoveredWorkspaceId === ws.id && !dragState?.isDragging;
+    
+    if (isDraggingThis) {
+      // Dragging: bright glow border
+      ctx.save();
+      ctx.shadowColor = ws.color;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = ws.color;
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 4]);
+      ctx.strokeRect(screenPos.x, screenPos.y, roomWidthPx, roomHeightPx);
+      ctx.setLineDash([]);
+      ctx.restore();
+    } else if (isHovered) {
+      // Hovered: subtle highlight
+      ctx.save();
+      ctx.shadowColor = ws.color;
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = ws.color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(screenPos.x, screenPos.y, roomWidthPx, roomHeightPx);
+      ctx.restore();
+      
+      // Draw move cursor icon hint
+      const moveIconX = screenPos.x + roomWidthPx - 20;
+      const moveIconY = screenPos.y + 8;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+      ctx.beginPath();
+      ctx.roundRect(moveIconX - 2, moveIconY - 2, 18, 18, 4);
+      ctx.fill();
+      
+      // Draw move arrows icon
+      ctx.strokeStyle = ws.color;
+      ctx.lineWidth = 1.5;
+      const cx = moveIconX + 7;
+      const cy = moveIconY + 7;
+      const arrowLen = 5;
+      // Horizontal arrow
+      ctx.beginPath();
+      ctx.moveTo(cx - arrowLen, cy);
+      ctx.lineTo(cx + arrowLen, cy);
+      ctx.stroke();
+      // Vertical arrow
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - arrowLen);
+      ctx.lineTo(cx, cy + arrowLen);
+      ctx.stroke();
+      // Arrow heads
+      ctx.beginPath();
+      ctx.moveTo(cx + arrowLen - 2, cy - 2);
+      ctx.lineTo(cx + arrowLen, cy);
+      ctx.lineTo(cx + arrowLen - 2, cy + 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - arrowLen + 2, cy - 2);
+      ctx.lineTo(cx - arrowLen, cy);
+      ctx.lineTo(cx - arrowLen + 2, cy + 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 2, cy - arrowLen + 2);
+      ctx.lineTo(cx, cy - arrowLen);
+      ctx.lineTo(cx + 2, cy - arrowLen + 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 2, cy + arrowLen - 2);
+      ctx.lineTo(cx, cy + arrowLen);
+      ctx.lineTo(cx + 2, cy + arrowLen - 2);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = ws.color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(screenPos.x, screenPos.y, roomWidthPx, roomHeightPx);
+    }
 
     // Draw corner accents
     const cornerSize = 12;
@@ -311,8 +493,9 @@ function renderWorkspaceRooms(
     const labelX = screenPos.x + roomWidthPx / 2;
     const labelY = screenPos.y - 8;
     
-    // Label background
-    const labelText = ws.name;
+    // Label with owner username
+    const ownerLabel = ws.user?.username ? ` (${ws.user.username})` : '';
+    const labelText = ws.name + ownerLabel;
     const labelWidth = ctx.measureText(labelText).width + 16;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.beginPath();

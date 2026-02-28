@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Character, AgentStatus, WorkspaceRoom } from '@/types';
-import { createGameEngine, startGameLoop, stopGameLoop, centerCameraOnCharacter, GameEngine, TILE_SIZE } from '@/lib/game/engine';
+import { createGameEngine, startGameLoop, stopGameLoop, centerCameraOnCharacter, GameEngine, TILE_SIZE, OFFICE_WIDTH, OFFICE_HEIGHT, screenToWorld } from '@/lib/game/engine';
 import { createInputHandler, applyMovement, InputState, setTouchDirection } from '@/lib/game/input';
-import { renderOffice, renderCharacters, renderDebugInfo } from '@/lib/game/renderer';
+import { renderOffice, renderCharacters, renderDebugInfo, hitTestWorkspaceRoom, createDragState, getDragAdjustedRoomPosition, getRoomPosition as getRoomPositionImport, WorkspaceDragState, BASE_ROOM_HEIGHT, getDynamicRoomWidth } from '@/lib/game/renderer';
 import { createAllSprites, AllSprites } from '@/lib/game/animated-sprites';
 
 // Agent type for GameCanvas (compatible with both old and new schema)
@@ -29,6 +29,16 @@ interface GameAgent {
   } | null;
 }
 
+// Other online player (from multiplayer)
+interface OtherPlayer {
+  userId: string;
+  username: string;
+  x: number;
+  y: number;
+  direction: string;
+  avatar?: string;
+}
+
 interface GameCanvasProps {
   currentUser: {
     id: string;
@@ -40,9 +50,11 @@ interface GameCanvasProps {
   };
   agents?: GameAgent[];
   workspaces?: WorkspaceRoom[]; // Workspace rooms to render
+  otherPlayers?: OtherPlayer[]; // Other online players for multiplayer
   agentsNeedingAction?: Set<string>; // Set of agent IDs that need user action
   onMove?: (x: number, y: number, direction: string) => void;
   onAgentProximity?: (agent: GameAgent | null) => void;
+  onWorkspaceMoved?: (workspaceId: string, positionX: number, positionY: number) => void; // Called when workspace is dragged to new position
   proximityThreshold?: number; // Distance in tiles to trigger proximity
   inputRef?: React.MutableRefObject<InputState | null>; // Expose input for touch controls
 }
@@ -51,9 +63,11 @@ export default function GameCanvas({
   currentUser, 
   agents = [], 
   workspaces = [],
+  otherPlayers = [],
   agentsNeedingAction = new Set(),
   onMove,
   onAgentProximity,
+  onWorkspaceMoved,
   proximityThreshold = 2, // Default 2 tiles (64 pixels at 32px per tile)
   inputRef: externalInputRef,
 }: GameCanvasProps) {
@@ -77,11 +91,14 @@ export default function GameCanvas({
   // Store agents, workspaces, and callbacks in refs to avoid useEffect re-runs
   const agentsRef = useRef<GameAgent[]>(agents);
   const workspacesRef = useRef<WorkspaceRoom[]>(workspaces);
+  const otherPlayersRef = useRef<OtherPlayer[]>(otherPlayers);
   const agentsNeedingActionRef = useRef<Set<string>>(agentsNeedingAction);
   const onMoveRef = useRef(onMove);
   const onAgentProximityRef = useRef(onAgentProximity);
+  const onWorkspaceMovedRef = useRef(onWorkspaceMoved);
   const proximityThresholdRef = useRef(proximityThreshold);
   const fpsRef = useRef(fps);
+  const dragStateRef = useRef<WorkspaceDragState>(createDragState());
 
   // Update refs when props change (without triggering useEffect)
   useEffect(() => {
@@ -91,6 +108,10 @@ export default function GameCanvas({
   useEffect(() => {
     workspacesRef.current = workspaces;
   }, [workspaces]);
+
+  useEffect(() => {
+    otherPlayersRef.current = otherPlayers;
+  }, [otherPlayers]);
 
   useEffect(() => {
     agentsNeedingActionRef.current = agentsNeedingAction;
@@ -103,6 +124,10 @@ export default function GameCanvas({
   useEffect(() => {
     onAgentProximityRef.current = onAgentProximity;
   }, [onAgentProximity]);
+
+  useEffect(() => {
+    onWorkspaceMovedRef.current = onWorkspaceMoved;
+  }, [onWorkspaceMoved]);
 
   useEffect(() => {
     proximityThresholdRef.current = proximityThreshold;
@@ -149,6 +174,94 @@ export default function GameCanvas({
     const sprites = createAllSprites();
     spritesRef.current = sprites;
 
+    // --- Workspace drag handling ---
+    const dragState = dragStateRef.current;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return; // Only left click
+      
+      const rect = canvas.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      
+      if (!engineRef.current) return;
+      const worldPos = screenToWorld(screenX, screenY, engineRef.current.camera);
+      
+      const hitWs = hitTestWorkspaceRoom(worldPos.x, worldPos.y, workspacesRef.current);
+      if (hitWs && hitWs.roomIndex !== null) {
+        const roomPos = getRoomPositionImport(hitWs.roomIndex, workspacesRef.current);
+        
+        dragState.isDragging = true;
+        dragState.workspaceId = hitWs.id;
+        dragState.startWorldX = worldPos.x;
+        dragState.startWorldY = worldPos.y;
+        dragState.startRoomX = roomPos.x;
+        dragState.startRoomY = roomPos.y;
+        dragState.currentWorldX = worldPos.x;
+        dragState.currentWorldY = worldPos.y;
+        
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      
+      if (!engineRef.current) return;
+      const worldPos = screenToWorld(screenX, screenY, engineRef.current.camera);
+      
+      if (dragState.isDragging) {
+        dragState.currentWorldX = worldPos.x;
+        dragState.currentWorldY = worldPos.y;
+        e.preventDefault();
+      } else {
+        // Update hover state for cursor feedback
+        const hitWs = hitTestWorkspaceRoom(worldPos.x, worldPos.y, workspacesRef.current);
+        const newHoveredId = hitWs?.id || null;
+        
+        if (dragState.hoveredWorkspaceId !== newHoveredId) {
+          dragState.hoveredWorkspaceId = newHoveredId;
+          canvas.style.cursor = newHoveredId ? 'grab' : 'default';
+        }
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!dragState.isDragging) return;
+      
+      // Calculate final position in tiles
+      const deltaX = (dragState.currentWorldX - dragState.startWorldX) / TILE_SIZE;
+      const deltaY = (dragState.currentWorldY - dragState.startWorldY) / TILE_SIZE;
+      const finalX = Math.round(dragState.startRoomX + deltaX);
+      const finalY = Math.round(dragState.startRoomY + deltaY);
+      
+      // Clamp to valid bounds (keep inside office walls)
+      const ws = workspacesRef.current.find(w => w.id === dragState.workspaceId);
+      const agentCount = ws?.agents?.length || 1;
+      const roomWidth = getDynamicRoomWidth(agentCount);
+      const clampedX = Math.max(1, Math.min(finalX, OFFICE_WIDTH - roomWidth - 1));
+      const clampedY = Math.max(1, Math.min(finalY, OFFICE_HEIGHT - BASE_ROOM_HEIGHT - 1));
+      
+      // Only persist if position actually changed
+      const hasMoved = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
+      
+      if (hasMoved && dragState.workspaceId && onWorkspaceMovedRef.current) {
+        onWorkspaceMovedRef.current(dragState.workspaceId, clampedX, clampedY);
+      }
+      
+      // Reset drag state
+      dragState.isDragging = false;
+      dragState.workspaceId = null;
+      canvas.style.cursor = dragState.hoveredWorkspaceId ? 'grab' : 'default';
+    };
+
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
     // Game render loop
     const render = (deltaTime: number) => {
       if (!engineRef.current || !inputRef.current || !spritesRef.current) return;
@@ -169,28 +282,61 @@ export default function GameCanvas({
       );
 
       // Render office with new sprites and workspace rooms
-      renderOffice(engineRef.current, spritesRef.current, workspacesRef.current);
+      renderOffice(engineRef.current, spritesRef.current, workspacesRef.current, dragStateRef.current);
 
       // Convert agents to characters for rendering (use ref to get latest agents)
       const currentAgents = agentsRef.current;
       const needingAction = agentsNeedingActionRef.current;
-      const agentCharacters: (Character & { status: AgentStatus })[] = currentAgents.map(agent => ({
-        id: agent.id,
-        name: agent.name,
-        x: agent.x,
-        y: agent.y,
-        direction: agent.direction as 'up' | 'down' | 'left' | 'right',
-        avatar: 'agent',
-        isAgent: true,
-        status: agent.status as AgentStatus,
-        workspace: agent.workspace?.path || undefined,
-        color: agent.workspace?.color || '#4a9eff',
-        currentTask: agent.currentTask || undefined,
-        needsAction: needingAction.has(agent.id),
+      const currentDragState = dragStateRef.current;
+      const currentWorkspaces = workspacesRef.current;
+      
+      const agentCharacters: (Character & { status: AgentStatus })[] = currentAgents.map(agent => {
+        let agentX = agent.x;
+        let agentY = agent.y;
+        
+        // If the agent's workspace is being dragged, offset agent position accordingly
+        if (currentDragState.isDragging && agent.workspaceId) {
+          const ws = currentWorkspaces.find(w => w.id === agent.workspaceId);
+          if (ws && currentDragState.workspaceId === ws.id && ws.roomIndex !== null) {
+            const originalRoomPos = getRoomPositionImport(ws.roomIndex, currentWorkspaces);
+            const draggedRoomPos = getDragAdjustedRoomPosition(ws, currentDragState, currentWorkspaces);
+            const deltaX = (draggedRoomPos.x - originalRoomPos.x) * TILE_SIZE;
+            const deltaY = (draggedRoomPos.y - originalRoomPos.y) * TILE_SIZE;
+            agentX += deltaX;
+            agentY += deltaY;
+          }
+        }
+        
+        return {
+          id: agent.id,
+          name: agent.name,
+          x: agentX,
+          y: agentY,
+          direction: agent.direction as 'up' | 'down' | 'left' | 'right',
+          avatar: 'agent',
+          isAgent: true,
+          status: agent.status as AgentStatus,
+          workspace: agent.workspace?.path || undefined,
+          color: agent.workspace?.color || '#4a9eff',
+          currentTask: agent.currentTask || undefined,
+          needsAction: needingAction.has(agent.id),
+        };
+      });
+
+      // Convert other online players to characters for rendering
+      const currentOtherPlayers = otherPlayersRef.current;
+      const otherPlayerCharacters: Character[] = currentOtherPlayers.map(p => ({
+        id: p.userId,
+        username: p.username,
+        x: p.x,
+        y: p.y,
+        direction: (p.direction || 'down') as 'up' | 'down' | 'left' | 'right',
+        avatar: p.avatar || 'default',
+        isAgent: false,
       }));
 
-      // Render all characters (player + agents)
-      const allCharacters = [player, ...agentCharacters];
+      // Render all characters (player + other players + agents)
+      const allCharacters = [player, ...otherPlayerCharacters, ...agentCharacters];
       renderCharacters(engineRef.current, allCharacters, spritesRef.current);
 
       // Render debug info (use ref to get latest fps)
@@ -260,6 +406,9 @@ export default function GameCanvas({
     return () => {
       stopGameLoop(engine);
       window.removeEventListener('resize', handleResize);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [currentUser.id]); // Only re-run when user ID changes
 

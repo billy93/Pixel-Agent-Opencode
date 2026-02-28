@@ -10,6 +10,7 @@ interface AgentPanelProps {
   onAgentCreated?: () => void;
   onOpenFiles?: (workspace: { id: string; name: string; path: string; color: string }) => void;
   isMobile?: boolean;
+  currentUserId?: string; // For multiplayer: only allow actions on own workspaces
 }
 
 // Workspace with agents
@@ -19,10 +20,12 @@ interface WorkspaceWithAgents {
   path: string;
   color: string;
   roomIndex: number | null;
+  userId?: string;
   agents: GameAgent[];
+  user?: { id: string; username: string };
 }
 
-export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: AgentPanelProps) {
+export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, currentUserId }: AgentPanelProps) {
   const { models, loading: modelsLoading, getModelById } = useModels();
   const [workspaces, setWorkspaces] = useState<WorkspaceWithAgents[]>([]);
   const [loading, setLoading] = useState(false);
@@ -525,6 +528,8 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
             {workspaces.map((ws) => {
               const workspaceColor = ws.color || '#6366f1';
               const isAddingToThis = addToWorkspaceId === ws.id;
+              const isOwnWorkspace = !currentUserId || ws.userId === currentUserId;
+              const ownerLabel = ws.user?.username && !isOwnWorkspace ? ` (${ws.user.username})` : '';
               
               return (
                 <div
@@ -545,7 +550,7 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                         <Home size={14} style={{ color: workspaceColor }} />
                       </div>
                       <div className="min-w-0">
-                        <div className="font-semibold text-xs text-white truncate">{ws.name}</div>
+                        <div className="font-semibold text-xs text-white truncate">{ws.name}{ownerLabel}</div>
                         <div className="text-[10px] text-slate-400 truncate" title={ws.path}>
                           {ws.path.split(/[\\/]/).slice(-2).join('/')}
                         </div>
@@ -559,7 +564,7 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                         <Users size={10} className="inline mr-1" />
                         {ws.agents.length}
                       </span>
-                      {onOpenFiles && (
+                      {onOpenFiles && isOwnWorkspace && (
                         <button
                           onClick={() => onOpenFiles({ id: ws.id, name: ws.name, path: ws.path, color: ws.color })}
                           className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-all"
@@ -568,7 +573,7 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                           <FolderOpen size={13} />
                         </button>
                       )}
-                      {!isAddingToThis && (
+                      {!isAddingToThis && isOwnWorkspace && (
                         <button
                           onClick={() => setAddToWorkspaceId(ws.id)}
                           className="p-1.5 rounded-lg transition-colors hover:bg-white/10"
@@ -578,13 +583,15 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                           <Plus size={14} />
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDeleteWorkspace(ws.id)}
-                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                        title="Delete workspace"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {isOwnWorkspace && (
+                        <button
+                          onClick={() => handleDeleteWorkspace(ws.id)}
+                          className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                          title="Delete workspace"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   
@@ -790,13 +797,15 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                                       <>
                                         <div className="flex items-center gap-1.5 mb-0.5">
                                           <span className="font-medium text-xs text-white truncate">{agent.name}</span>
-                                          <button
-                                            onClick={() => startEditing(agent)}
-                                            className="p-0.5 text-slate-500 hover:text-indigo-400 rounded transition-colors opacity-0 group-hover:opacity-100"
-                                            title="Edit agent"
-                                          >
-                                            <Pencil size={10} />
-                                          </button>
+                                          {isOwnWorkspace && (
+                                            <button
+                                              onClick={() => startEditing(agent)}
+                                              className="p-0.5 text-slate-500 hover:text-indigo-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                              title="Edit agent"
+                                            >
+                                              <Pencil size={10} />
+                                            </button>
+                                          )}
                                         </div>
                                         
                                         <div className="flex items-center gap-1 text-[10px] text-purple-400 mb-1">
@@ -823,19 +832,21 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                                             {statusInfo.icon}
                                             <span>{statusInfo.label}</span>
                                           </div>
-                                          <button
-                                            onClick={() => handleSendTask(agent.id)}
-                                            className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-1.5 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 rounded text-[9px] font-medium transition-all"
-                                          >
-                                            <Send size={9} /> Task
-                                          </button>
+                                          {isOwnWorkspace && (
+                                            <button
+                                              onClick={() => handleSendTask(agent.id)}
+                                              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-1.5 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 rounded text-[9px] font-medium transition-all"
+                                            >
+                                              <Send size={9} /> Task
+                                            </button>
+                                          )}
                                         </div>
                                       </>
                                     )}
                                   </div>
                                 </div>
                                 
-                                {!isEditing && (
+                                {!isEditing && isOwnWorkspace && (
                                   <button
                                     onClick={() => handleDeleteAgent(agent.id)}
                                     className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
@@ -856,13 +867,15 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: Ag
                   {ws.agents.length === 0 && !isAddingToThis && (
                     <div className="px-3.5 py-4 text-center">
                       <p className="text-[10px] text-slate-500 mb-2">No agents in this workspace</p>
-                      <button
-                        onClick={() => setAddToWorkspaceId(ws.id)}
-                        className="flex items-center gap-1.5 mx-auto px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors"
-                      >
-                        <Plus size={12} />
-                        Add First Agent
-                      </button>
+                      {isOwnWorkspace && (
+                        <button
+                          onClick={() => setAddToWorkspaceId(ws.id)}
+                          className="flex items-center gap-1.5 mx-auto px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          <Plus size={12} />
+                          Add First Agent
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

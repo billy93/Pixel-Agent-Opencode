@@ -13,6 +13,7 @@ import { LogOut, Users, User as UserIcon, MessageSquare, Cpu, X, CheckCircle, Bo
 import { useModels } from '@/lib/models/use-models';
 import { useOpenCodeServer } from '@/lib/opencode/use-opencode-server';
 import { useIsMobile } from '@/lib/hooks/use-is-mobile';
+import { useSocket } from '@/lib/hooks/use-socket';
 import { ProviderModel, formatContextWindow } from '@/lib/models/available-models';
 import { InputState, setTouchDirection } from '@/lib/game/input';
 
@@ -52,6 +53,12 @@ export default function Home() {
   const moveThrottleRef = useRef<number | null>(null);
   const wasServerConnectedRef = useRef(false);
   const gameInputRef = useRef<InputState | null>(null);
+
+  // Multiplayer socket connection
+  const { isConnected: socketConnected, otherPlayers, onlineCount, sendPosition } = useSocket({
+    userId: user?.id || null,
+    initialPosition: user ? { x: user.x, y: user.y, direction: user.direction, avatar: user.avatar } : undefined,
+  });
 
   // Set agent panel open by default on desktop
   useEffect(() => {
@@ -177,7 +184,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [user, agents.length, checkAgentsNeedingAction]);
 
-  // Throttled handleMove
+  // Throttled handleMove — also broadcasts position via socket
   const handleMove = useCallback((x: number, y: number, direction: string) => {
     const last = lastMoveRef.current;
     
@@ -187,6 +194,9 @@ export default function Home() {
     
     lastMoveRef.current = { x, y, direction };
     
+    // Send position to other players via socket
+    sendPosition(x, y, direction);
+    
     if (moveThrottleRef.current) {
       return;
     }
@@ -194,7 +204,7 @@ export default function Home() {
     moveThrottleRef.current = window.setTimeout(() => {
       moveThrottleRef.current = null;
     }, 100);
-  }, []);
+  }, [sendPosition]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -346,6 +356,7 @@ export default function Home() {
           currentUser={user} 
           agents={agents}
           workspaces={workspaces}
+          otherPlayers={otherPlayers}
           agentsNeedingAction={agentsNeedingAction}
           onMove={handleMove}
           onAgentProximity={handleAgentProximity}
@@ -526,7 +537,7 @@ export default function Home() {
             {/* Panel Agent */}
             {showAgentPanel && (
               <div className="shadow-[0_8px_30px_rgb(0,0,0,0.4)] transition-all duration-300 transform origin-bottom-right">
-                <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={handleOpenFiles} />
+                <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={handleOpenFiles} currentUserId={user?.id} />
               </div>
             )}
 
@@ -542,7 +553,8 @@ export default function Home() {
                   <div className="flex flex-col">
                     <span className="font-bold text-sm text-gray-100 leading-tight">{user.username}</span>
                     <span className="text-[10px] text-[#2ed573] font-medium leading-tight flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> Online
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> 
+                      {socketConnected ? `${onlineCount} online` : 'Connecting...'}
                     </span>
                   </div>
                 </div>
@@ -607,7 +619,8 @@ export default function Home() {
                   <div className="flex flex-col">
                     <span className="font-bold text-[11px] text-gray-100 leading-tight">{user.username}</span>
                     <span className="text-[9px] text-[#2ed573] font-medium leading-tight flex items-center gap-1">
-                      <span className="w-1 h-1 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> Online
+                      <span className="w-1 h-1 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> 
+                      {socketConnected ? `${onlineCount} online` : '...'}
                     </span>
                   </div>
                 </div>
@@ -713,7 +726,7 @@ export default function Home() {
                   <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={(ws) => {
                     setActiveFileManager(ws);
                     setShowAgentPanel(false);
-                  }} isMobile />
+                  }} isMobile currentUserId={user?.id} />
                 </div>
               </div>
             </div>

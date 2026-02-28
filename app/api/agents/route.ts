@@ -161,11 +161,13 @@ export async function GET(request: NextRequest) {
   try {
     const authUser = await requireAuth(request);
 
-    // Get user's agents with workspace info
+    // Get ALL agents from ALL users (shared office, multiplayer)
     const agents = await prisma.agent.findMany({
-      where: { userId: authUser.userId },
       include: {
         workspace: true,
+        user: {
+          select: { id: true, username: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

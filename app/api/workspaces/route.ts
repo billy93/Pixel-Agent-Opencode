@@ -94,25 +94,35 @@ async function assignOrphanAgentsToWorkspace(userId: string): Promise<void> {
   }
 }
 
-// GET - List all workspaces for the user
+// GET - List all workspaces (shared across all users for multiplayer)
 export async function GET(request: NextRequest) {
   try {
     const authUser = await requireAuth(request);
 
-    // Auto-assign orphan agents to a dummy workspace
+    // Auto-assign orphan agents for current user
     await assignOrphanAgentsToWorkspace(authUser.userId);
 
+    // Return ALL workspaces from ALL users (shared office, multiplayer)
     const workspaces = await prisma.workspace.findMany({
-      where: { userId: authUser.userId },
       include: {
         agents: {
           orderBy: { createdAt: 'asc' },
+        },
+        user: {
+          select: { id: true, username: true },
         },
       },
       orderBy: { createdAt: 'asc' },
     });
 
-    return NextResponse.json({ workspaces });
+    // Reassign roomIndex globally to avoid collisions between users
+    // Each workspace gets a unique sequential room index
+    const workspacesWithGlobalIndex = workspaces.map((ws, index) => ({
+      ...ws,
+      roomIndex: index,
+    }));
+
+    return NextResponse.json({ workspaces: workspacesWithGlobalIndex });
   } catch (error: any) {
     if (error.message === 'Unauthorized') {
       return NextResponse.json(
