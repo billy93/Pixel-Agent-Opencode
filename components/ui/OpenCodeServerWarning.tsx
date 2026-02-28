@@ -39,8 +39,8 @@ export default function OpenCodeServerWarning({
   }
 
   return (
-    <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-red-500/30 rounded-2xl shadow-2xl w-[500px] max-w-[90vw] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-red-500/30 rounded-2xl shadow-2xl w-[500px] max-w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="bg-red-500/10 border-b border-red-500/20 px-6 py-4 flex items-center gap-3">
           <div className="p-2 bg-red-500/20 rounded-xl">

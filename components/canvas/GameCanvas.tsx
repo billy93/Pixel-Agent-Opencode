@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Character, AgentStatus, WorkspaceRoom } from '@/types';
 import { createGameEngine, startGameLoop, stopGameLoop, centerCameraOnCharacter, GameEngine, TILE_SIZE } from '@/lib/game/engine';
-import { createInputHandler, applyMovement, InputState } from '@/lib/game/input';
+import { createInputHandler, applyMovement, InputState, setTouchDirection } from '@/lib/game/input';
 import { renderOffice, renderCharacters, renderDebugInfo } from '@/lib/game/renderer';
 import { createAllSprites, AllSprites } from '@/lib/game/animated-sprites';
 
@@ -44,6 +44,7 @@ interface GameCanvasProps {
   onMove?: (x: number, y: number, direction: string) => void;
   onAgentProximity?: (agent: GameAgent | null) => void;
   proximityThreshold?: number; // Distance in tiles to trigger proximity
+  inputRef?: React.MutableRefObject<InputState | null>; // Expose input for touch controls
 }
 
 export default function GameCanvas({ 
@@ -53,7 +54,8 @@ export default function GameCanvas({
   agentsNeedingAction = new Set(),
   onMove,
   onAgentProximity,
-  proximityThreshold = 2 // Default 2 tiles (64 pixels at 32px per tile)
+  proximityThreshold = 2, // Default 2 tiles (64 pixels at 32px per tile)
+  inputRef: externalInputRef,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -137,6 +139,11 @@ export default function GameCanvas({
     // Initialize input handler
     const input = createInputHandler();
     inputRef.current = input;
+
+    // Expose input ref for external touch controls
+    if (externalInputRef) {
+      externalInputRef.current = input;
+    }
 
     // Create all sprites (including animated ones)
     const sprites = createAllSprites();

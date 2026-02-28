@@ -18,9 +18,10 @@ interface ChatPanelProps {
   onClose: () => void;
   isMinimized?: boolean;
   onToggleMinimize?: () => void;
+  isMobile?: boolean;
 }
 
-export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimize }: ChatPanelProps) {
+export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimize, isMobile }: ChatPanelProps) {
   const { models, getModelById } = useModels();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -618,7 +619,11 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
   }
 
   return (
-    <div className="bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-600/40 w-[420px] h-[600px] flex flex-col overflow-hidden">
+    <div className={`bg-slate-800/95 backdrop-blur-xl shadow-2xl border border-slate-600/40 flex flex-col overflow-hidden ${
+      isMobile 
+        ? 'w-full h-full rounded-none border-0' 
+        : 'rounded-2xl w-[420px] h-[600px]'
+    }`}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-700/50 bg-slate-800/50 flex items-center justify-between">
         <div className="flex items-center gap-3">

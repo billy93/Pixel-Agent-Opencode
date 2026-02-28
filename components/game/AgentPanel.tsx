@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Bot, Plus, Trash2, Send, FolderGit2, ChevronDown, Zap, Clock, AlertCircle, Pencil, Check, X, Cpu, Users, Home, FolderPlus, Brain } from 'lucide-react';
+import { Bot, Plus, Trash2, Send, FolderGit2, ChevronDown, Zap, Clock, AlertCircle, Pencil, Check, X, Cpu, Users, Home, FolderPlus, Brain, FolderOpen } from 'lucide-react';
 import { GameAgent, WorkspaceRoom } from '@/types';
 import { useModels, getDefaultModelId } from '@/lib/models/use-models';
 import { ProviderModel, formatContextWindow, getModelsByProvider } from '@/lib/models/available-models';
 
 interface AgentPanelProps {
   onAgentCreated?: () => void;
+  onOpenFiles?: (workspace: { id: string; name: string; path: string; color: string }) => void;
+  isMobile?: boolean;
 }
 
 // Workspace with agents
@@ -20,7 +22,7 @@ interface WorkspaceWithAgents {
   agents: GameAgent[];
 }
 
-export default function AgentPanel({ onAgentCreated }: AgentPanelProps) {
+export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile }: AgentPanelProps) {
   const { models, loading: modelsLoading, getModelById } = useModels();
   const [workspaces, setWorkspaces] = useState<WorkspaceWithAgents[]>([]);
   const [loading, setLoading] = useState(false);
@@ -350,30 +352,54 @@ export default function AgentPanel({ onAgentCreated }: AgentPanelProps) {
   };
 
   return (
-    <div className="bg-gradient-to-b from-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-2xl shadow-2xl w-[380px] max-h-[70vh] flex flex-col border border-slate-600/40 overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/50 flex justify-between items-center shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <Bot size={18} className="text-white" />
+    <div className={`bg-gradient-to-b from-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white shadow-2xl flex flex-col border border-slate-600/40 overflow-hidden ${
+      isMobile 
+        ? 'w-full h-full rounded-none border-0' 
+        : 'rounded-2xl w-[380px] max-h-[70vh]'
+    }`}>
+      {/* Header — hidden on mobile since page.tsx provides its own */}
+      {!isMobile && (
+        <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/50 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+              <Bot size={18} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white">Workspaces & Agents</h2>
+              <p className="text-[10px] text-slate-400">{workspaces.length} workspaces, {totalAgents} agents</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-white">Workspaces & Agents</h2>
-            <p className="text-[10px] text-slate-400">{workspaces.length} workspaces, {totalAgents} agents</p>
-          </div>
+          <button
+            onClick={() => setShowCreateWorkspace(!showCreateWorkspace)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              showCreateWorkspace 
+                ? 'bg-indigo-500 text-white' 
+                : 'bg-slate-700/50 hover:bg-slate-700 text-slate-300'
+            }`}
+          >
+            <FolderPlus size={14} />
+            New Workspace
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreateWorkspace(!showCreateWorkspace)}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-            showCreateWorkspace 
-              ? 'bg-indigo-500 text-white' 
-              : 'bg-slate-700/50 hover:bg-slate-700 text-slate-300'
-          }`}
-        >
-          <FolderPlus size={14} />
-          New Workspace
-        </button>
-      </div>
+      )}
+
+      {/* Mobile: compact New Workspace button */}
+      {isMobile && (
+        <div className="px-4 py-2 border-b border-slate-700/30 shrink-0 flex items-center justify-between">
+          <p className="text-[10px] text-slate-400">{workspaces.length} workspaces, {totalAgents} agents</p>
+          <button
+            onClick={() => setShowCreateWorkspace(!showCreateWorkspace)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              showCreateWorkspace 
+                ? 'bg-indigo-500 text-white' 
+                : 'bg-slate-700/50 hover:bg-slate-700 text-slate-300'
+            }`}
+          >
+            <FolderPlus size={12} />
+            New
+          </button>
+        </div>
+      )}
 
       {/* Create Workspace Form */}
       {showCreateWorkspace && (
@@ -533,6 +559,15 @@ export default function AgentPanel({ onAgentCreated }: AgentPanelProps) {
                         <Users size={10} className="inline mr-1" />
                         {ws.agents.length}
                       </span>
+                      {onOpenFiles && (
+                        <button
+                          onClick={() => onOpenFiles({ id: ws.id, name: ws.name, path: ws.path, color: ws.color })}
+                          className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-all"
+                          title="Browse files"
+                        >
+                          <FolderOpen size={13} />
+                        </button>
+                      )}
                       {!isAddingToThis && (
                         <button
                           onClick={() => setAddToWorkspaceId(ws.id)}

@@ -115,8 +115,8 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
         </div>
 
         <div className="mt-6 text-xs text-gray-400 text-center">
-          <p>Use WASD or arrow keys to move</p>
-          <p>Click to spawn agents (coming soon)</p>
+          <p>Use WASD / arrow keys or on-screen joystick to move</p>
+          <p>Tap or click to interact with agents</p>
         </div>
       </div>
     </div>

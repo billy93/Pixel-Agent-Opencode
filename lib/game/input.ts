@@ -69,6 +69,23 @@ export function createInputHandler(): InputState {
   return state;
 }
 
+// Set directional input from touch controls
+export function setTouchDirection(state: InputState, direction: string | null) {
+  state.up = false;
+  state.down = false;
+  state.left = false;
+  state.right = false;
+
+  if (direction === 'up') state.up = true;
+  else if (direction === 'down') state.down = true;
+  else if (direction === 'left') state.left = true;
+  else if (direction === 'right') state.right = true;
+  else if (direction === 'up-left') { state.up = true; state.left = true; }
+  else if (direction === 'up-right') { state.up = true; state.right = true; }
+  else if (direction === 'down-left') { state.down = true; state.left = true; }
+  else if (direction === 'down-right') { state.down = true; state.right = true; }
+}
+
 export function cleanupInputHandler() {
   // Remove event listeners if needed
   // Store handlers in closure for cleanup
