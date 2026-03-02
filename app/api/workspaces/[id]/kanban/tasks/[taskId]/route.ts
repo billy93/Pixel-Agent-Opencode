@@ -354,6 +354,19 @@ export async function DELETE(
       }
     }
 
+    // Explicitly delete the session associated with this task if it exists
+    if (task.sessionId) {
+      try {
+        await prisma.agentSession.delete({
+          where: { externalId: task.sessionId }
+        });
+        console.log(`Deleted session ${task.sessionId} for task ${taskId}`);
+      } catch (e) {
+        // Session might have been deleted by cascade (if agent was deleted) or doesn't exist
+        console.log("Session already deleted or not found:", e);
+      }
+    }
+
     // Delete the task
     await prisma.kanbanTask.delete({
       where: { id: taskId },

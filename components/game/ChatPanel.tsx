@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Loader2, ChevronDown, FolderGit2,
   Maximize2, Minimize2, HelpCircle, MessageCircleQuestion,
   Edit3, Cpu, Command, Slash, Lightbulb, Hammer, Brain, ChevronRight,
-  Zap
+  Zap, Trash2
 } from 'lucide-react';
 import { ChatMessage, AgentStatus, QuestionOption, GameAgent } from '@/types';
 import { OPENCODE_COMMANDS, searchCommands, SlashCommand, getCategoryLabel } from '@/lib/commands/opencode-commands';
@@ -38,6 +38,7 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
   const [showCustomInput, setShowCustomInput] = useState<Record<string, boolean>>({});
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({});
   const [showCommands, setShowCommands] = useState(false);
+  const [showSessionDropdown, setShowSessionDropdown] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [currentModel, setCurrentModel] = useState<string>((agent as any).model || 'anthropic/claude-sonnet-4-20250514');
@@ -45,6 +46,7 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const commandsRef = useRef<HTMLDivElement>(null);
+  const sessionDropdownRef = useRef<HTMLDivElement>(null);
 
   const prevAgentSessionIdRef = useRef<string | null>(agent.sessionId || null);
 
@@ -94,6 +96,9 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
     const handleClickOutside = (e: MouseEvent) => {
       if (commandsRef.current && !commandsRef.current.contains(e.target as Node)) {
         setShowCommands(false);
+      }
+      if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(e.target as Node)) {
+        setShowSessionDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -670,19 +675,73 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
             </div>
             
             {sessions.length > 1 && !(agent as any).isSessionLocked ? (
-              <div className="relative mt-1 group">
-                <select 
-                  className="appearance-none bg-slate-900/50 text-[10px] text-slate-300 rounded px-2 py-0.5 pr-5 w-full max-w-[160px] truncate border border-slate-700 hover:border-indigo-500/50 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
-                  value={activeSessionId || ''}
-                  onChange={(e) => setActiveSessionId(e.target.value)}
+              <div ref={sessionDropdownRef} className="relative mt-1">
+                <button 
+                  onClick={() => setShowSessionDropdown(!showSessionDropdown)}
+                  className="flex items-center justify-between bg-slate-900/50 text-[10px] text-slate-300 rounded px-2 py-0.5 w-full max-w-[160px] border border-slate-700 hover:border-indigo-500/50 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
                 >
-                  {sessions.map((s: any) => (
-                    <option key={s.externalId} value={s.externalId} className="bg-slate-800 text-slate-200">
-                      {s.currentTask ? (s.currentTask.length > 25 ? s.currentTask.substring(0, 25) + '...' : s.currentTask) : `Session ${s.externalId.substring(0, 8)}`}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none group-hover:text-indigo-400 transition-colors" />
+                  <span className="truncate flex-1 text-left mr-1">
+                    {activeSessionId 
+                      ? (() => {
+                          const s = sessions.find((s: any) => s.externalId === activeSessionId);
+                          if (!s) return `Session ${activeSessionId.substring(0, 8)}...`;
+                          const label = s.currentTask || `Session ${s.externalId.substring(0, 8)}`;
+                          return label.length > 20 ? label.substring(0, 20) + '...' : label;
+                        })()
+                      : 'Select Session'}
+                  </span>
+                  <ChevronDown size={10} className="text-slate-400 shrink-0" />
+                </button>
+                
+                {showSessionDropdown && (
+                  <div className="absolute top-full left-0 mt-1 w-[220px] bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-[300px] overflow-y-auto custom-scrollbar p-1">
+                    {sessions.map((s: any) => (
+                      <div key={s.externalId} className="flex items-center justify-between p-1.5 hover:bg-slate-700/50 rounded-md group/item mb-0.5 last:mb-0">
+                        <button
+                          onClick={() => {
+                            setActiveSessionId(s.externalId);
+                            setShowSessionDropdown(false);
+                          }}
+                          className={`flex-1 text-left text-[10px] truncate mr-2 ${s.externalId === activeSessionId ? 'text-indigo-400 font-medium' : 'text-slate-300'}`}
+                          title={s.currentTask || s.externalId}
+                        >
+                          {s.currentTask ? (s.currentTask.length > 25 ? s.currentTask.substring(0, 25) + '...' : s.currentTask) : `Session ${s.externalId.substring(0, 8)}...`}
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if(!confirm('Delete this session? History will be lost.')) return;
+                            try {
+                              const res = await fetch(`/api/sessions/${s.externalId}`, { method: 'DELETE' });
+                              if(res.ok) {
+                                setSessions(prev => prev.filter((sess: any) => sess.externalId !== s.externalId));
+                                if(activeSessionId === s.externalId) {
+                                  // If we deleted the active session, switch to the first available one or null
+                                  const remaining = sessions.filter((sess: any) => sess.externalId !== s.externalId);
+                                  if (remaining.length > 0) {
+                                    setActiveSessionId(remaining[0].externalId);
+                                  } else {
+                                    setActiveSessionId(null);
+                                  }
+                                }
+                              } else {
+                                const data = await res.json();
+                                alert(data.error || 'Failed to delete session');
+                              }
+                            } catch(err) {
+                              console.error(err);
+                              alert('Error deleting session');
+                            }
+                          }}
+                          className="opacity-0 group-hover/item:opacity-100 p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                          title="Delete Session"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-1.5 text-[10px] text-slate-400">

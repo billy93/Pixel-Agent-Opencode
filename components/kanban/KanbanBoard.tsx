@@ -68,7 +68,7 @@ export default function KanbanBoard({ workspaceId, workspaceName, onClose, initi
   const fetchKanban = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const response = await fetch(`/api/workspaces/${workspaceId}/kanban`, {
+      const response = await fetch(`/api/workspaces/${workspaceId}/kanban?t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
           'Pragma': 'no-cache',
@@ -110,10 +110,20 @@ export default function KanbanBoard({ workspaceId, workspaceName, onClose, initi
         : col.tasks
     }));
 
+  const syncAgents = async () => {
+    try {
+      await fetch('/api/agents/sync', { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to sync agents', err);
+    }
+  };
+
   useEffect(() => {
     fetchKanban();
+    syncAgents();
 
     const interval = setInterval(() => {
+      syncAgents();
       fetchKanban(true);
     }, 3000);
 

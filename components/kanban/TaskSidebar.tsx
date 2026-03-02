@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { KanbanTask as IKanbanTask, GameAgent } from '@/types';
 import { X, Bot, Trash2, Save, Cpu, Terminal, MessageSquare, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 import { useModels } from '@/lib/models/use-models';
@@ -92,9 +92,16 @@ export default function TaskSidebar({ task, workspaceId, isOpen, onClose, onSave
     }
   };
 
-  const agent = task.agent; // This is the *current* agent on the task object. 
-  // If we changed selectedAgentId but haven't saved, this is still the old agent.
-  // For the chat, we should probably show the chat of the *assigned* agent (saved one).
+  const agent = task.agent; 
+  
+  const chatAgent = useMemo(() => {
+    if (!agent) return null;
+    return {
+      ...agent,
+      sessionId: task.sessionId || agent.sessionId,
+      isSessionLocked: true
+    };
+  }, [agent, task.sessionId]);
   
   // If user changes agent in dropdown, we don't switch chat immediately until save.
   
@@ -213,6 +220,39 @@ export default function TaskSidebar({ task, workspaceId, isOpen, onClose, onSave
                                   {modelInfo && (
                                     <span className="opacity-75">{modelInfo.name}</span>
                                   )}
+                                  {(task.sessionId || a.sessionId) && (
+                                    <div className="flex items-center justify-between gap-2 w-full mt-1">
+                                      <span className="flex items-center gap-1.5 opacity-75 font-mono text-[10px]">
+                                        <Terminal size={10} />
+                                        Session: {(task.sessionId || a.sessionId)?.substring(0, 8)}...
+                                      </span>
+                                      {task.sessionId && (
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if(!confirm('Delete this session? Chat history will be lost.')) return;
+                                            try {
+                                              const res = await fetch(`/api/workspaces/${workspaceId}/kanban/tasks/${task.id}/session`, {
+                                                  method: 'DELETE'
+                                              });
+                                              if(res.ok) {
+                                                  onClose(); // Close to refresh state
+                                              } else {
+                                                  alert('Failed to delete session');
+                                              }
+                                            } catch(err) {
+                                                console.error(err);
+                                                alert('Error deleting session');
+                                            }
+                                          }}
+                                          className="text-red-400 hover:text-red-300 p-1 hover:bg-red-500/20 rounded transition-colors"
+                                          title="Delete Session"
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -260,9 +300,9 @@ export default function TaskSidebar({ task, workspaceId, isOpen, onClose, onSave
           </div>
         ) : (
           <div className="absolute inset-0 flex flex-col">
-            {agent ? (
+            {chatAgent ? (
               <ChatPanel 
-                agent={agent} 
+                agent={chatAgent} 
                 onClose={() => setActiveTab('details')} 
                 isMobile={true} 
               />
