@@ -24,6 +24,8 @@ interface ChatPanelProps {
 export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimize, isMobile }: ChatPanelProps) {
   const { models, getModelById } = useModels();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -44,13 +46,21 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const commandsRef = useRef<HTMLDivElement>(null);
 
-  // Sync model when agent prop changes
+  const prevAgentSessionIdRef = useRef<string | null>(agent.sessionId || null);
+
+  // Sync model and session when agent prop changes
   useEffect(() => {
     const agentModel = (agent as any).model;
     if (agentModel && agentModel !== currentModel) {
       setCurrentModel(agentModel);
     }
-  }, [(agent as any).model]);
+    
+    // Sync active session only if agent's current session actually changed (e.g. task switch)
+    if (agent.sessionId && agent.sessionId !== prevAgentSessionIdRef.current) {
+      setActiveSessionId(agent.sessionId);
+      prevAgentSessionIdRef.current = agent.sessionId;
+    }
+  }, [agent.sessionId, (agent as any).model]);
 
   // Filter commands based on input
   const filteredCommands = useMemo(() => {
@@ -115,13 +125,25 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
   };
 
   // Fetch chat messages
-  const fetchMessages = useCallback(async () => {
+  const fetchMessages = useCallback(async (isBackground = false) => {
     try {
-      setIsLoading(true);
-      const response = await fetch(`/api/agents/${agent.id}/chat`);
+      if (!isBackground) setIsLoading(true);
+      const url = activeSessionId 
+        ? `/api/agents/${agent.id}/chat?sessionId=${activeSessionId}` 
+        : `/api/agents/${agent.id}/chat`;
+        
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
+        setSessions(data.sessions || []);
+        
+        // If active session not set yet (or backend suggests a different one), update it
+        // Only if we don't have one selected, or if the backend returned an active one and we want to sync
+        if (!activeSessionId && data.activeSessionId) {
+          setActiveSessionId(data.activeSessionId);
+        }
+        
         setAgentStatus(data.agentStatus || 'IDLE');
         setHasPermissionPending(data.hasPermissionPending || false);
         setHasQuestionPending(data.hasQuestionPending || false);
@@ -138,13 +160,13 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
     } catch (err) {
       setError('Network error');
     } finally {
-      setIsLoading(false);
+      if (!isBackground) setIsLoading(false);
     }
-  }, [agent.id]);
+  }, [agent.id, activeSessionId]);
 
   // Initial fetch and polling
   useEffect(() => {
-    fetchMessages();
+    fetchMessages(false);
     
     // Use faster polling (1s) when agent is actively working for streaming-like updates
     // Use normal polling (3s) when waiting for permissions/questions
@@ -152,13 +174,14 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
     const pollMs = isActive ? 1000 : 3000;
     
     const pollInterval = setInterval(() => {
-      if (agentStatus !== 'IDLE' || hasPermissionPending || hasQuestionPending) {
-        fetchMessages();
+      // Always poll if active session selected, or just general check
+      if (agentStatus !== 'IDLE' || hasPermissionPending || hasQuestionPending || activeSessionId) {
+        fetchMessages(true);
       }
     }, pollMs);
 
     return () => clearInterval(pollInterval);
-  }, [fetchMessages, agentStatus, hasPermissionPending, hasQuestionPending]);
+  }, [fetchMessages, agentStatus, hasPermissionPending, hasQuestionPending, activeSessionId]);
 
   // Send message
   const handleSendMessage = async () => {
@@ -183,7 +206,11 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
       const response = await fetch(`/api/agents/${agent.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, mode: agentMode }),
+        body: JSON.stringify({ 
+          message: messageText, 
+          mode: agentMode,
+          sessionId: activeSessionId
+        }),
       });
 
       if (response.ok) {
@@ -641,12 +668,43 @@ export default function ChatPanel({ agent, onClose, isMinimized, onToggleMinimiz
               <h3 className="font-bold text-sm text-white">{agent.name}</h3>
               <span className={`w-2 h-2 rounded-full ${getStatusColor(agentStatus)}`} />
             </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-              <FolderGit2 size={10} />
-              <span className="truncate max-w-[150px]">
-                {agent.workspace?.name || 'No workspace'}
-              </span>
-            </div>
+            
+            {sessions.length > 1 && !(agent as any).isSessionLocked ? (
+              <div className="relative mt-1 group">
+                <select 
+                  className="appearance-none bg-slate-900/50 text-[10px] text-slate-300 rounded px-2 py-0.5 pr-5 w-full max-w-[160px] truncate border border-slate-700 hover:border-indigo-500/50 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+                  value={activeSessionId || ''}
+                  onChange={(e) => setActiveSessionId(e.target.value)}
+                >
+                  {sessions.map((s: any) => (
+                    <option key={s.externalId} value={s.externalId} className="bg-slate-800 text-slate-200">
+                      {s.currentTask ? (s.currentTask.length > 25 ? s.currentTask.substring(0, 25) + '...' : s.currentTask) : `Session ${s.externalId.substring(0, 8)}`}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none group-hover:text-indigo-400 transition-colors" />
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                {(agent as any).isSessionLocked ? (
+                   <>
+                     <div className="flex items-center gap-1 text-emerald-400" title="Locked to task session">
+                       <Terminal size={10} />
+                       <span className="truncate max-w-[150px] font-mono">
+                         {activeSessionId ? activeSessionId.substring(0, 8) + '...' : 'Task Session'}
+                       </span>
+                     </div>
+                   </>
+                ) : (
+                  <>
+                    <FolderGit2 size={10} />
+                    <span className="truncate max-w-[150px]">
+                      {agent.workspace?.name || 'No workspace'}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
         

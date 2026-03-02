@@ -17,6 +17,7 @@ export interface GameAgent {
   deskIndex?: number | null;
   workspaceId?: string | null;
   userId?: string;
+  activeTaskCount?: number;
   createdAt?: Date;
   updatedAt?: Date;
   // Workspace relation (new schema)
@@ -44,6 +45,35 @@ export interface WorkspaceRoom {
     id: string;
     username: string;
   };
+}
+
+export interface KanbanColumn {
+  id: string;
+  title: string;
+  order: number;
+  type: string;
+  workspaceId: string;
+  tasks: KanbanTask[];
+}
+
+export interface KanbanTask {
+  id: string;
+  content: string;
+  description?: string | null;
+  order: number;
+  columnId: string;
+  agentId?: string | null;
+  agent?: GameAgent | null;
+  
+  // Agent automation
+  agentMode?: 'NEW' | 'EXISTING';
+  agentModel?: string | null;
+  agentRole?: 'PLAN' | 'BUILD' | null;
+  targetAgentId?: string | null;
+  sessionId?: string | null;
+  
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Position {

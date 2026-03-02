@@ -13,6 +13,7 @@ datasource db {
 model User {
   id        String   @id @default(cuid())
   username  String   @unique
+  email     String?  @unique
   password  String
   x         Int      @default(400)
   y         Int      @default(300)
@@ -58,9 +59,47 @@ model Workspace {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   agents Agent[]
+  
+  kanbanColumns KanbanColumn[]
 
   @@unique([userId, path])
   @@index([userId])
+}
+
+model KanbanColumn {
+  id        String       @id @default(cuid())
+  title     String
+  order     Int
+  type      String       @default("custom") // TODO, IN_PROGRESS, DONE, custom
+  workspaceId String
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     KanbanTask[]
+  
+  @@index([workspaceId])
+}
+
+model KanbanTask {
+  id          String       @id @default(cuid())
+  content     String
+  description String?
+  order       Int
+  columnId    String
+  column      KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  agentId     String?      // ID of the agent created for this task or assigned to it
+  agent       Agent?       @relation(fields: [agentId], references: [id])
+  
+  // Agent automation configuration
+  agentMode     String     @default("NEW") // "NEW", "EXISTING"
+  agentModel    String?    // LLM Model ID (e.g. "anthropic/claude...")
+  agentRole     String?    // "PLAN" or "BUILD"
+  targetAgentId String?    // ID of existing agent to use (if agentMode is EXISTING)
+  
+  sessionId     String?    // OpenCode session ID specific to this task
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([columnId])
 }
 
 model Agent {
@@ -84,9 +123,28 @@ model Agent {
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   permissions Permission[]
+  kanbanTasks KanbanTask[]
+  
+  // Multiple sessions for one agent
+  sessions AgentSession[]
 
   @@index([userId])
   @@index([workspaceId])
+}
+
+model AgentSession {
+  id          String   @id @default(cuid())
+  externalId  String   @unique // The OpenCode session ID
+  status      String   @default("IDLE") // IDLE, RUNNING, ERROR, etc.
+  currentTask String?  // Task description for this session
+  
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([agentId])
 }
 
 model Permission {

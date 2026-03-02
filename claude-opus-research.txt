@@ -1,0 +1,239 @@
+CLAUDE OPUS - AI MODEL RESEARCH
+================================
+
+OVERVIEW
+--------
+Claude Opus 4.6 is Anthropic's most capable AI model as of February 2026. It's a hybrid 
+reasoning model designed for the most demanding professional tasks including software 
+engineering, AI agents, and enterprise workflows.
+
+RELEASE HISTORY
+---------------
+- Claude Opus 4.6 (February 5, 2026) - Current version, most capable to date
+- Claude Opus 4.5 (November 24, 2025) - Most intelligent model at the time
+- Claude Opus 4.1 (August 5, 2025) - Enhanced coding and agentic tasks
+- Claude Opus 4 (May 22, 2025) - Initial Claude 4 family release
+
+KEY CAPABILITIES
+----------------
+
+Advanced Coding:
+- Delivers production-ready code with minimal oversight
+- Plans carefully and runs for longer with sustained effort
+- Operates reliably in larger codebases
+- Strong code review and debugging skills
+- Catches its own mistakes
+- Senior engineers can delegate complex tasks with confidence
+
+AI Agents:
+- Handles longer, more complex task chains with fewer errors
+- Requires less hand-holding
+- Adapts approach as conditions change
+- Ideal for complex, multi-step agentic workflows
+- Provides reliability and autonomy for critical tasks
+
+Enterprise Workflows:
+- Maintains context and quality across large projects
+- Works with documents, spreadsheets, and presentations
+- Runs financial analyses
+- Reads charts and diagrams
+- Conducts research
+- Delivers precision and consistency for high-stakes work
+
+TECHNICAL SPECIFICATIONS
+-------------------------
+
+Context Window:
+- 1 million tokens (1M context window)
+- Currently available in beta on Claude Developer Platform only
+
+Pricing (API):
+- Input: $5 per million tokens
+- Output: $25 per million tokens
+- Prompt caching: Up to 90% cost savings
+- Batch processing: 50% cost savings
+- US-only inference: 1.1x pricing for input and output tokens
+
+Model ID for API: claude-opus-4-6
+
+AVAILABILITY
+------------
+For Business Users & Consumers:
+- Claude Pro
+- Claude Max
+- Claude Team
+- Claude Enterprise
+
+For Developers:
+- Claude Developer Platform (native)
+- Amazon Bedrock
+- Google Cloud's Vertex AI
+- Microsoft Foundry
+
+BENCHMARK PERFORMANCE
+---------------------
+Claude Opus 4.6 demonstrates state-of-the-art performance:
+- Terminal-Bench 2.0: 65.4%
+- OSWorld (computer use): 72.7%
+- BigLaw Bench (legal reasoning): 90.2%
+- Industry-leading results across coding and agentic capabilities
+
+HYBRID REASONING / EXTENDED THINKING MODE
+------------------------------------------
+Opus 4.6 offers two modes:
+1. Instant responses for quick tasks
+2. Extended thinking for complex reasoning
+
+Extended Thinking Features:
+- Fine-grained controls for adjusting effort level
+- Balance between performance, latency, and cost
+- Thinking summaries help understand reasoning process
+- Best for: Complex reasoning tasks, extended agentic work, multi-step coding 
+  projects, deep research
+
+When to Use Extended Thinking:
+- Performance and accuracy matter more than latency
+- Complex reasoning tasks
+- Extended agentic work
+- Multi-step coding projects
+- Deep research
+
+USE CASES
+---------
+
+Professional Software Engineering:
+- Production-ready code generation
+- Code review and debugging
+- Large codebase navigation
+- Complex refactoring tasks
+
+AI Agents:
+- Multi-step autonomous workflows
+- Tool calling and orchestration
+- Parallel task execution
+- Self-error correction
+
+Enterprise Applications:
+- Document analysis and creation
+- Financial modeling and analysis
+- Legal document review
+- Data analysis across large datasets
+- Spreadsheet automation
+- Presentation creation
+- Research synthesis
+
+CUSTOMER TESTIMONIALS (Selected Highlights)
+--------------------------------------------
+
+Replit (Michele Catasta, President):
+"Claude Opus 4.6 is a huge leap for agentic planning. It breaks complex tasks into 
+independent subtasks, runs tools and subagents in parallel, and identifies blockers 
+with real precision."
+
+Asana (Amritansh Raghav, Interim CTO):
+"Claude Opus 4.6 is the best model we've tested yet. Its reasoning and planning 
+capabilities have been exceptional at powering our AI Teammates. It's also a fantastic 
+coding model."
+
+Cursor (Michael Truell, Co-founder & CEO):
+"Claude Opus 4.6 is the new frontier on long-running tasks from our internal benchmarks 
+and testing. It's also been highly effective at reviewing code."
+
+Harvey (Niko Grupen, Head of AI Research):
+"Claude Opus 4.6 achieved the highest BigLaw Bench score of any Claude model at 90.2%. 
+With 40% perfect scores and 84% above 0.8, it's remarkably capable for legal reasoning."
+
+SentinelOne (Gregor Stewart, Chief AI Officer):
+"Claude Opus 4.6 handled a multi-million-line codebase migration like a senior engineer. 
+It planned upfront, adapted its strategy as it learned, and finished in half the time."
+
+TRUST AND SAFETY
+-----------------
+- Extensive testing and evaluation with external experts
+- Meets Anthropic's standards for safety, security, and reliability
+- Detailed model card available covering safety results
+- Responsible Scaling Policy in place
+
+INTEGRATION EXAMPLES
+--------------------
+
+Claude in Excel:
+- Multi-tab analysis
+- Financial modeling
+- Due diligence automation
+- Unstructured data processing
+
+Claude Code:
+- Background task execution
+- Long-running coding tasks
+- Independent problem solving
+
+Claude in Slack:
+- Team collaboration
+- Automated workflows
+
+Claude in PowerPoint:
+- Presentation creation
+- Content structuring
+
+RECOMMENDED FOR
+---------------
+- Tasks no prior model could handle
+- Professional software engineering
+- Complex agentic workflows
+- High-stakes enterprise tasks
+- Production-ready code requirements
+- Large codebase management
+- Financial analysis and modeling
+- Legal document review
+- Research and analysis
+
+NOT RECOMMENDED FOR
+-------------------
+- Simple, straightforward tasks (use Sonnet or Haiku for better cost efficiency)
+- Tasks where latency is critical and complexity is low
+- Basic content generation
+- Simple Q&A
+
+COMPARISON WITH OTHER CLAUDE MODELS
+------------------------------------
+Anthropic offers three model tiers:
+
+Opus - Most capable, frontier intelligence
+- Best for: Complex coding, agents, enterprise workflows
+- Highest cost, highest performance
+
+Sonnet - Balanced intelligence and speed
+- Best for: Most everyday tasks
+- Mid-range cost and performance
+
+Haiku - Fastest, most affordable
+- Best for: Simple tasks requiring speed
+- Lowest cost, optimized for latency
+
+WHEN TO USE CLAUDE OPUS 4.6
+----------------------------
+Use Opus 4.6 for your most demanding use cases where you need frontier intelligence:
+- Production-ready code generation
+- Sophisticated AI agents
+- Complex document creation
+- Large-scale enterprise workflows
+- Multi-step reasoning tasks
+- High-accuracy requirements
+
+RESOURCES
+---------
+Official Website: https://www.anthropic.com/claude/opus
+Developer Docs: https://platform.claude.com/docs
+API Console: https://platform.claude.com/
+Pricing Information: https://claude.com/pricing
+Support Center: https://support.claude.com/
+
+ADDITIONAL NOTES
+----------------
+- 1M context window currently in beta (Developer Platform only)
+- Extended thinking mode provides transparency into reasoning process
+- Hybrid approach allows choosing between speed and deep reasoning
+- Continuous improvements and updates from Anthropic
+- Part of Claude 4 model family
+- Compatible with major cloud platforms

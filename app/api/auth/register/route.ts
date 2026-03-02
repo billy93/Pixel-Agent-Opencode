@@ -4,7 +4,7 @@ import { hashPassword } from '@/lib/auth/password';
 
 export async function POST(request: NextRequest) {
   try {
-    const { username, password } = await request.json();
+    const { username, password, email } = await request.json();
 
     // Validate input
     if (!username || !password) {
@@ -29,15 +29,28 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { username },
+    const existingUser = await prisma.user.findFirst({
+      where: { 
+        OR: [
+          { username },
+          ...(email ? [{ email }] : [])
+        ]
+      },
     });
 
     if (existingUser) {
-      return NextResponse.json(
-        { error: 'Username already taken' },
-        { status: 409 }
-      );
+      if (existingUser.username === username) {
+        return NextResponse.json(
+          { error: 'Username already taken' },
+          { status: 409 }
+        );
+      }
+      if (email && existingUser.email === email) {
+        return NextResponse.json(
+          { error: 'Email already registered' },
+          { status: 409 }
+        );
+      }
     }
 
     // Hash password and create user
@@ -45,6 +58,7 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.create({
       data: {
         username,
+        email: email || null,
         password: hashedPassword,
       },
       select: {

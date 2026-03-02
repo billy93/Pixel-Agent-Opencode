@@ -1,12 +1,13 @@
 'use client';
 
 import { useRef, useCallback, useEffect } from 'react';
-import { MessageSquare, Cpu } from 'lucide-react';
+import { MessageSquare, Cpu, Layout, FolderOpen } from 'lucide-react';
 
 interface MobileControlsProps {
   onDirectionChange: (direction: string | null) => void;
-  onAction: (action: 'chat' | 'model') => void;
+  onAction: (action: 'chat' | 'model' | 'openFilteredKanban' | 'openWorkspaceKanban' | 'openWorkspaceFiles') => void;
   showActionButtons: boolean;
+  showWorkspaceAction?: boolean;
   agentName?: string;
 }
 
@@ -14,6 +15,7 @@ export default function MobileControls({
   onDirectionChange,
   onAction,
   showActionButtons,
+  showWorkspaceAction,
   agentName,
 }: MobileControlsProps) {
   const joystickRef = useRef<HTMLDivElement>(null);
@@ -148,45 +150,86 @@ export default function MobileControls({
         </div>
       </div>
 
-      {/* Action Buttons — Bottom Right (only when near an agent) */}
-      {showActionButtons && (
+      {/* Action Buttons — Bottom Right (only when near an agent or inside workspace) */}
+      {(showActionButtons || showWorkspaceAction) && (
         <div
-          className="fixed z-[99990] select-none flex flex-col gap-3"
+          className="fixed z-[99990] select-none flex flex-col gap-3 items-center"
           style={{
             bottom: '24px',
             right: '24px',
             touchAction: 'none',
           }}
         >
-          {/* Chat button */}
+          {/* Workspace Kanban button (only when in workspace and NOT near agent) */}
+          {showWorkspaceAction && !showActionButtons && (
+        <div className="flex flex-col gap-3">
           <button
             onTouchStart={(e) => {
               e.preventDefault();
-              onAction('chat');
+              onAction('openWorkspaceKanban');
             }}
-            className="w-14 h-14 rounded-full bg-indigo-500/80 backdrop-blur-sm border border-indigo-400/50 flex items-center justify-center shadow-lg shadow-indigo-500/30 active:scale-90 transition-transform"
+            className="w-14 h-14 rounded-full bg-blue-500/80 backdrop-blur-sm border border-blue-400/50 flex items-center justify-center shadow-lg shadow-blue-500/30 active:scale-90 transition-transform"
           >
-            <MessageSquare size={22} className="text-white" />
+            <Layout size={22} className="text-white" />
           </button>
-
-          {/* Model button */}
+          
           <button
             onTouchStart={(e) => {
               e.preventDefault();
-              onAction('model');
+              onAction('openWorkspaceFiles');
             }}
-            className="w-14 h-14 rounded-full bg-purple-500/80 backdrop-blur-sm border border-purple-400/50 flex items-center justify-center shadow-lg shadow-purple-500/30 active:scale-90 transition-transform"
+            className="w-14 h-14 rounded-full bg-amber-500/80 backdrop-blur-sm border border-amber-400/50 flex items-center justify-center shadow-lg shadow-amber-500/30 active:scale-90 transition-transform"
           >
-            <Cpu size={22} className="text-white" />
+            <FolderOpen size={22} className="text-white" />
           </button>
+        </div>
+      )}
 
-          {/* Agent name label */}
-          {agentName && (
-            <div className="text-center">
-              <span className="text-[10px] text-white/70 bg-black/40 px-2 py-1 rounded-full backdrop-blur-sm">
-                {agentName}
-              </span>
-            </div>
+          {/* Agent Action Buttons */}
+          {showActionButtons && (
+            <>
+              {/* Kanban button */}
+              <button
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  onAction('openFilteredKanban');
+                }}
+                className="w-14 h-14 rounded-full bg-emerald-500/80 backdrop-blur-sm border border-emerald-400/50 flex items-center justify-center shadow-lg shadow-emerald-500/30 active:scale-90 transition-transform"
+              >
+                <Layout size={22} className="text-white" />
+              </button>
+
+              {/* Chat button */}
+              <button
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  onAction('chat');
+                }}
+                className="w-14 h-14 rounded-full bg-indigo-500/80 backdrop-blur-sm border border-indigo-400/50 flex items-center justify-center shadow-lg shadow-indigo-500/30 active:scale-90 transition-transform"
+              >
+                <MessageSquare size={22} className="text-white" />
+              </button>
+
+              {/* Model button */}
+              <button
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  onAction('model');
+                }}
+                className="w-14 h-14 rounded-full bg-purple-500/80 backdrop-blur-sm border border-purple-400/50 flex items-center justify-center shadow-lg shadow-purple-500/30 active:scale-90 transition-transform"
+              >
+                <Cpu size={22} className="text-white" />
+              </button>
+
+              {/* Agent name label */}
+              {agentName && (
+                <div className="text-center">
+                  <span className="text-[10px] text-white/70 bg-black/40 px-2 py-1 rounded-full backdrop-blur-sm">
+                    {agentName}
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Bot, Plus, Trash2, Send, FolderGit2, ChevronDown, Zap, Clock, AlertCircle, Pencil, Check, X, Cpu, Users, Home, FolderPlus, Brain, FolderOpen } from 'lucide-react';
 import { GameAgent, WorkspaceRoom } from '@/types';
@@ -109,6 +109,7 @@ function PortalModelDropdown({
 interface AgentPanelProps {
   onAgentCreated?: () => void;
   onOpenFiles?: (workspace: { id: string; name: string; path: string; color: string }) => void;
+  onOpenKanban?: (workspaceId: string) => void;
   isMobile?: boolean;
   currentUserId?: string; // For multiplayer: only allow actions on own workspaces
 }
@@ -125,7 +126,28 @@ interface WorkspaceWithAgents {
   user?: { id: string; username: string };
 }
 
-export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, currentUserId }: AgentPanelProps) {
+// Helper to strip volatile fields for comparison
+function simplifyWorkspaceForComparison(ws: WorkspaceWithAgents) {
+  return {
+    id: ws.id,
+    name: ws.name,
+    path: ws.path,
+    color: ws.color,
+    roomIndex: ws.roomIndex,
+    userId: ws.userId,
+    user: ws.user ? { username: ws.user.username } : undefined,
+    agents: ws.agents.map(a => ({
+      id: a.id,
+      name: a.name,
+      status: a.status,
+      model: a.model,
+      currentTask: a.currentTask,
+      workspaceId: a.workspaceId
+    }))
+  };
+}
+
+function AgentPanel({ onAgentCreated, onOpenFiles, onOpenKanban, isMobile, currentUserId }: AgentPanelProps) {
   const { models, loading: modelsLoading, getModelById } = useModels();
   const [workspaces, setWorkspaces] = useState<WorkspaceWithAgents[]>([]);
   const [loading, setLoading] = useState(false);
@@ -174,18 +196,24 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
     return grouped;
   }, [models]);
 
-  const fetchWorkspaces = async () => {
+  const fetchWorkspaces = async (background = false) => {
     try {
-      setLoading(true);
+      if (!background) setLoading(true);
       const response = await fetch('/api/workspaces');
       if (response.ok) {
         const data = await response.json();
-        setWorkspaces(data.workspaces || []);
+        const newWorkspaces = data.workspaces || [];
+        setWorkspaces(prev => {
+           const prevSimplified = prev.map(simplifyWorkspaceForComparison);
+           const newSimplified = newWorkspaces.map(simplifyWorkspaceForComparison);
+           if (JSON.stringify(prevSimplified) === JSON.stringify(newSimplified)) return prev;
+           return newWorkspaces;
+        });
       }
     } catch (err) {
       console.error('Failed to fetch workspaces:', err);
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   };
 
@@ -211,13 +239,13 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
 
   // Initial fetch and polling
   useEffect(() => {
-    fetchWorkspaces();
+    fetchWorkspaces(false);
     fetchRecentWorkspaces();
     
     const pollInterval = setInterval(() => {
-      fetchWorkspaces();
+      fetchWorkspaces(true);
       syncAgentStatus();
-    }, 10000);
+    }, 3000);
 
     return () => clearInterval(pollInterval);
   }, []);
@@ -871,46 +899,43 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
                                             <span className="text-[9px] text-slate-500">({getModelById(agent.model || '')?.providerName})</span>
                                           )}
                                           {getModelById(agent.model || '')?.capabilities.reasoning && (
-                                            <span className="px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[7px] flex items-center gap-0.5 shrink-0">
-                                              <Brain size={6} />R
-                                            </span>
+                                            <span className="px-1 py-0 bg-purple-500/20 text-purple-400 rounded text-[7px] shrink-0">R</span>
                                           )}
                                         </div>
                                         
                                         {agent.currentTask && (
-                                          <div className="text-[10px] text-slate-400 truncate mb-1" title={agent.currentTask}>
+                                          <div className="text-[10px] text-slate-400 mb-1 line-clamp-2 leading-relaxed">
                                             {agent.currentTask}
                                           </div>
                                         )}
                                         
-                                        <div className="flex items-center gap-2">
-                                          <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${statusInfo.bgColor} ${statusInfo.color}`}>
-                                            {statusInfo.icon}
-                                            <span>{statusInfo.label}</span>
-                                          </div>
-                                          {isOwnWorkspace && (
-                                            <button
-                                              onClick={() => handleSendTask(agent.id)}
-                                              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-1.5 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 rounded text-[9px] font-medium transition-all"
-                                            >
-                                              <Send size={9} /> Task
-                                            </button>
-                                          )}
+                                        <div className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded ${statusInfo.bgColor} ${statusInfo.color} text-[9px] font-medium`}>
+                                          {statusInfo.icon}
+                                          {statusInfo.label}
                                         </div>
                                       </>
                                     )}
                                   </div>
                                 </div>
                                 
-                                {!isEditing && isOwnWorkspace && (
+                                <div className="flex flex-col gap-1">
+                                  {isOwnWorkspace && (
+                                    <button
+                                      onClick={() => handleDeleteAgent(agent.id)}
+                                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                      title="Delete agent"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  )}
                                   <button
-                                    onClick={() => handleDeleteAgent(agent.id)}
-                                    className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                    title="Delete Agent"
+                                    onClick={() => handleSendTask(agent.id)}
+                                    className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Send task"
                                   >
-                                    <Trash2 size={12} />
+                                    <Send size={12} />
                                   </button>
-                                )}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -943,3 +968,5 @@ export default function AgentPanel({ onAgentCreated, onOpenFiles, isMobile, curr
     </div>
   );
 }
+
+export default React.memo(AgentPanel);

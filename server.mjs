@@ -15,10 +15,6 @@ const dev = process.argv.includes('--dev');
 const hostname = '0.0.0.0';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || 'your-secret-key-change-in-production'
-);
-
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
@@ -29,6 +25,11 @@ const connectedPlayers = new Map();
 const userSockets = new Map();
 
 app.prepare().then(() => {
+  // Initialize JWT Secret AFTER Next.js loads environment variables
+  const JWT_SECRET = new TextEncoder().encode(
+    process.env.AUTH_SECRET || 'your-secret-key-change-in-production'
+  );
+
   const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);

@@ -117,9 +117,13 @@ export async function GET(request: NextRequest) {
 
     // Reassign roomIndex globally to avoid collisions between users
     // Each workspace gets a unique sequential room index
+    // Workspaces with custom positions (positionX/positionY) keep their positions
     const workspacesWithGlobalIndex = workspaces.map((ws, index) => ({
       ...ws,
       roomIndex: index,
+      // Preserve custom position if set, otherwise null (renderer will calculate default)
+      positionX: ws.positionX,
+      positionY: ws.positionY,
     }));
 
     return NextResponse.json({ workspaces: workspacesWithGlobalIndex });

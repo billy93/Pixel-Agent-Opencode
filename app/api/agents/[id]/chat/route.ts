@@ -39,10 +39,41 @@ export async function GET(
       );
     }
 
+    // Check for sessionId query param
+    const { searchParams } = new URL(request.url);
+    const requestedSessionId = searchParams.get('sessionId');
+    const activeSessionId = requestedSessionId || agent.sessionId;
+
+    // Get available sessions
+    let sessions = await prisma.agentSession.findMany({
+      where: { agentId: agent.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Lazy migration: If active session exists but not in sessions list, create it
+    if (activeSessionId && !sessions.find(s => s.externalId === activeSessionId)) {
+      try {
+        const newSession = await prisma.agentSession.create({
+          data: {
+            externalId: activeSessionId,
+            agentId: agent.id,
+            status: agent.status, // Use current agent status as initial status for migrated session
+            currentTask: agent.currentTask
+          }
+        });
+        sessions = [newSession, ...sessions];
+      } catch (e) {
+        // Ignore duplicate errors if parallel requests race
+        console.warn('Failed to migrate session record', e);
+      }
+    }
+
     // If no session, return empty messages
-    if (!agent.sessionId) {
+    if (!activeSessionId) {
       return NextResponse.json({
         messages: [],
+        sessions: [],
+        activeSessionId: null,
         hasPermissionPending: false,
         hasQuestionPending: false,
         pendingQuestions: [],
@@ -56,7 +87,7 @@ export async function GET(
       const client = getOpencodeClient();
       const workspacePath = agent.workspace?.path || process.cwd();
       const messagesResponse = await client.session.messages({
-        sessionID: agent.sessionId,
+        sessionID: activeSessionId,
         directory: workspacePath,
       });
 
@@ -250,8 +281,31 @@ export async function GET(
       // Sort messages by timestamp
       messages.sort((a, b) => a.timestamp - b.timestamp);
 
+      // Check for status consistency
+      // If the last message from OpenCode indicates completion (stop), but DB says RUNNING, update DB
+      if (rawMessages.length > 0) {
+        const lastContainer = rawMessages[rawMessages.length - 1];
+        if (lastContainer.info) {
+          const lastInfo = lastContainer.info;
+          
+          // If assistant finished successfully (stop, length, or content_filter)
+          if (lastInfo.role === 'assistant' && (lastInfo.finish === 'stop' || lastInfo.finish === 'length' || lastInfo.finish === 'content_filter')) {
+            if (agent.status === 'RUNNING' || agent.status === 'TYPING') {
+              console.log(`[Chat] Auto-correcting agent ${agent.id} status from ${agent.status} to IDLE (finish reason: ${lastInfo.finish})`);
+              await prisma.agent.update({
+                where: { id: agent.id },
+                data: { status: 'IDLE' },
+              });
+              agent.status = 'IDLE'; // Update local variable for response
+            }
+          }
+        }
+      }
+
       return NextResponse.json({
         messages,
+        sessions,
+        activeSessionId,
         hasPermissionPending: agent.permissions.length > 0,
         hasQuestionPending,
         pendingQuestions,
@@ -263,6 +317,8 @@ export async function GET(
       // Return empty messages if OpenCode is not available
       return NextResponse.json({
         messages: [],
+        sessions: sessions || [],
+        activeSessionId: activeSessionId || null,
         hasPermissionPending: agent.permissions.length > 0,
         hasQuestionPending: false,
         pendingQuestions: [],
@@ -295,7 +351,7 @@ export async function POST(
   try {
     const authUser = await requireAuth(request);
     const { id: agentId } = await params;
-    const { message, mode = 'plan' } = await request.json();
+    const { message, mode = 'plan', sessionId } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -324,7 +380,9 @@ export async function POST(
       );
     }
 
-    if (!agent.sessionId) {
+    const targetSessionId = sessionId || agent.sessionId;
+
+    if (!targetSessionId) {
       return NextResponse.json(
         { error: 'Agent has no active session' },
         { status: 400 }
@@ -332,10 +390,23 @@ export async function POST(
     }
 
     // Update agent status to TYPING
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { status: 'TYPING' },
-    });
+    // If target is active session, update Agent status
+    if (targetSessionId === agent.sessionId) {
+      await prisma.agent.update({
+        where: { id: agentId },
+        data: { status: 'TYPING' },
+      });
+    }
+    
+    // Update AgentSession status
+    try {
+      await prisma.agentSession.update({
+        where: { externalId: targetSessionId },
+        data: { status: 'TYPING' }
+      });
+    } catch (e) {
+      // Ignore if session record not found (e.g. legacy session not migrated yet)
+    }
 
     const workspacePath = agent.workspace?.path || process.cwd();
 
@@ -358,7 +429,7 @@ export async function POST(
       }
       
       const response = await client.session.prompt({
-        sessionID: agent.sessionId,
+        sessionID: targetSessionId,
         directory: workspacePath,
         model: {
           providerID,

@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
           if (lastMessage && lastMessage.info) {
             // Check if last message is from assistant
             if (lastMessage.info.role === 'assistant') {
-              // If finish is 'stop', task is complete, agent is idle
-              if (lastMessage.info.finish === 'stop') {
+              // If finish is 'stop' or 'length', task is complete, agent is idle
+              if (lastMessage.info.finish === 'stop' || lastMessage.info.finish === 'length' || lastMessage.info.finish === 'content_filter') {
                 newStatus = 'IDLE';
               } else {
                 // Still generating
@@ -67,6 +67,55 @@ export async function POST(request: NextRequest) {
           });
           updates.push({ agentId: agent.id, oldStatus: agent.status, newStatus });
           console.log(`[Sync] Updated agent ${agent.id}: ${agent.status} -> ${newStatus}`);
+        }
+
+        // Ensure cleanup and auto-move if agent is IDLE (regardless of whether it just transitioned or was already IDLE)
+        // This handles cases where status was updated by chat route or other processes
+        if (newStatus === 'IDLE') {
+          try {
+            // 1. Clear currentTask on agent if it exists
+            if (agent.currentTask) {
+              await prisma.agent.update({
+                where: { id: agent.id },
+                data: { currentTask: null }
+              });
+            }
+            
+            // 2. Auto-move active task to DONE
+            // Find active task for this agent in IN_PROGRESS column
+            const activeTask = await prisma.kanbanTask.findFirst({
+              where: {
+                agentId: agent.id,
+                column: {
+                  type: 'IN_PROGRESS'
+                }
+              },
+              include: {
+                column: true
+              }
+            });
+
+            if (activeTask) {
+              // Find DONE column in the same workspace
+              const doneColumn = await prisma.kanbanColumn.findFirst({
+                where: {
+                  workspaceId: activeTask.column.workspaceId,
+                  type: 'DONE'
+                }
+              });
+
+              if (doneColumn) {
+                // Move task to DONE
+                await prisma.kanbanTask.update({
+                  where: { id: activeTask.id },
+                  data: { columnId: doneColumn.id }
+                });
+                console.log(`[Sync] Auto-moved task ${activeTask.id} to DONE`);
+              }
+            }
+          } catch (err) {
+            console.error(`[Sync] Failed to cleanup agent ${agent.id}:`, err);
+          }
         }
 
       } catch (error) {

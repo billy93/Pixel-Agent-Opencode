@@ -9,21 +9,30 @@ interface AuthFormProps {
 export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [successMessage, setSuccessMessage] = useState('');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
 
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const body: any = { username, password };
+      if (!isLogin && email) {
+        body.email = email;
+      }
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -34,12 +43,19 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
         return;
       }
 
-      // Store token in localStorage for client-side access
-      if (data.token) {
-        localStorage.setItem('auth-token', data.token);
+      if (isLogin) {
+        // Store token in localStorage for client-side access
+        if (data.token) {
+          localStorage.setItem('auth-token', data.token);
+        }
+        onSuccess();
+      } else {
+        // Registration successful
+        setIsLogin(true);
+        setSuccessMessage('Account created successfully! Please login.');
+        setPassword('');
+        setLoading(false);
       }
-
-      onSuccess();
     } catch (err) {
       setError('Network error. Please try again.');
       setLoading(false);
@@ -56,7 +72,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-1">
-              Username
+              {isLogin ? 'Username or Email' : 'Username'}
             </label>
             <input
               id="username"
@@ -69,6 +85,22 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
               disabled={loading}
             />
           </div>
+
+          {!isLogin && (
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-1">
+                Email (Optional)
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-600 text-white rounded border border-slate-500 focus:outline-none focus:border-blue-500"
+                disabled={loading}
+              />
+            </div>
+          )}
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-1">
@@ -87,8 +119,14 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           </div>
 
           {error && (
-            <div className="text-red-400 text-sm bg-red-900/30 p-2 rounded">
+            <div className="text-red-400 text-sm bg-red-900/30 p-2 rounded border border-red-500/20">
               {error}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="text-emerald-400 text-sm bg-emerald-900/30 p-2 rounded border border-emerald-500/20">
+              {successMessage}
             </div>
           )}
 
@@ -106,6 +144,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             onClick={() => {
               setIsLogin(!isLogin);
               setError('');
+              setSuccessMessage('');
             }}
             className="text-blue-400 hover:text-blue-300 text-sm"
             disabled={loading}

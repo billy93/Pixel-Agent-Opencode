@@ -7,10 +7,13 @@ import AgentPanel from '@/components/game/AgentPanel';
 import ChatPanel from '@/components/game/ChatPanel';
 import GlobalChat from '@/components/game/GlobalChat';
 import FileManager from '@/components/game/FileManager';
+import KanbanBoard from '@/components/kanban/KanbanBoard';
 import MobileControls from '@/components/game/MobileControls';
+import Sidebar from '@/components/layout/Sidebar';
+import UserManagement from '@/components/admin/UserManagement';
 import OpenCodeServerWarning from '@/components/ui/OpenCodeServerWarning';
 import { WorkspaceRoom, GameAgent } from '@/types';
-import { LogOut, Users, User as UserIcon, MessageSquare, MessageCircle, Cpu, X, CheckCircle, Bot, FolderOpen } from 'lucide-react';
+import { LogOut, Users, User as UserIcon, MessageSquare, MessageCircle, Cpu, X, CheckCircle, Bot, FolderOpen, Layout } from 'lucide-react';
 import { useModels } from '@/lib/models/use-models';
 import { useOpenCodeServer } from '@/lib/opencode/use-opencode-server';
 import { useIsMobile } from '@/lib/hooks/use-is-mobile';
@@ -44,6 +47,8 @@ export default function Home() {
   const [showQuickModelSelector, setShowQuickModelSelector] = useState(false);
   const [dismissedServerWarning, setDismissedServerWarning] = useState(false);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [activeAdminMenu, setActiveAdminMenu] = useState<string | null>(null);
   const [activeFileManager, setActiveFileManager] = useState<{
     id: string;
     name: string;
@@ -51,6 +56,12 @@ export default function Home() {
     color: string;
   } | null>(null);
   
+  // Kanban State
+  const [showKanban, setShowKanban] = useState(false);
+  const [kanbanWorkspace, setKanbanWorkspace] = useState<{ id: string; name: string } | null>(null);
+  const [kanbanInitialAgentId, setKanbanInitialAgentId] = useState<string | null>(null);
+  const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceRoom | null>(null);
+
   // Ref for throttling handleMove
   const lastMoveRef = useRef<{ x: number; y: number; direction: string } | null>(null);
   const moveThrottleRef = useRef<number | null>(null);
@@ -58,7 +69,7 @@ export default function Home() {
   const gameInputRef = useRef<InputState | null>(null);
 
   // Multiplayer socket connection
-  const { isConnected: socketConnected, otherPlayers, onlineCount, sendPosition } = useSocket({
+  const { isConnected: socketConnected, connectionError, otherPlayers, onlineCount, sendPosition } = useSocket({
     userId: user?.id || null,
     initialPosition: user ? { x: user.x, y: user.y, direction: user.direction, avatar: user.avatar } : undefined,
   });
@@ -128,7 +139,14 @@ export default function Home() {
       const response = await fetch('/api/agents');
       if (response.ok) {
         const data = await response.json();
-        setAgents(data.agents || []);
+        const newAgents = data.agents || [];
+        setAgents(prevAgents => {
+          // Deep compare to avoid unnecessary re-renders
+          if (JSON.stringify(prevAgents) === JSON.stringify(newAgents)) {
+            return prevAgents;
+          }
+          return newAgents;
+        });
       }
     } catch (error) {
       console.error('Failed to fetch agents:', error);
@@ -140,12 +158,29 @@ export default function Home() {
       const response = await fetch('/api/workspaces');
       if (response.ok) {
         const data = await response.json();
-        setWorkspaces(data.workspaces || []);
+        const newWorkspaces = data.workspaces || [];
+        setWorkspaces(prevWorkspaces => {
+          // Deep compare to avoid unnecessary re-renders
+          if (JSON.stringify(prevWorkspaces) === JSON.stringify(newWorkspaces)) {
+            return prevWorkspaces;
+          }
+          return newWorkspaces;
+        });
       }
     } catch (error) {
       console.error('Failed to fetch workspaces:', error);
     }
   }, []);
+
+  const handleOpenKanban = useCallback((workspaceId: string, agentId: string | null = null) => {
+    const workspace = workspaces.find(ws => ws.id === workspaceId);
+    if (workspace) {
+      setKanbanWorkspace({ id: workspace.id, name: workspace.name });
+      setKanbanInitialAgentId(agentId);
+      setShowKanban(true);
+      setActiveFileManager(null);
+    }
+  }, [workspaces]);
 
   // Check which agents need user action
   const checkAgentsNeedingAction = useCallback(async () => {
@@ -167,7 +202,14 @@ export default function Home() {
       }
     }));
     
-    setAgentsNeedingAction(needingAction);
+    setAgentsNeedingAction(prev => {
+      // Compare Sets to avoid unnecessary re-renders
+      if (prev.size === needingAction.size && 
+          Array.from(prev).every(id => needingAction.has(id))) {
+        return prev;
+      }
+      return needingAction;
+    });
   }, [agents]);
 
   // Fetch agents and workspaces once when user is authenticated
@@ -240,6 +282,11 @@ export default function Home() {
     setNearbyAgent(agent);
   }, []);
 
+  // Handle workspace proximity detection from GameCanvas
+  const handleWorkspaceEnter = useCallback((workspace: WorkspaceRoom | null) => {
+    setCurrentWorkspace(workspace);
+  }, []);
+
   // Get the latest version of nearbyAgent from agents array
   const currentNearbyAgent = nearbyAgent 
     ? agents.find(a => a.id === nearbyAgent.id) || nearbyAgent 
@@ -287,9 +334,23 @@ export default function Home() {
     setIsChatMinimized(false);
   }, []);
 
+  // Handle opening chat from Kanban board (specific session)
+  const handleKanbanChat = useCallback((agent: any, sessionId?: string) => {
+    // Construct an agent-like object with the specific session
+    const chatAgent = {
+      ...agent,
+      sessionId: sessionId || agent.sessionId,
+      isSessionLocked: true // Lock session for task-specific chat
+    };
+    setActiveChat(chatAgent);
+    setIsChatMinimized(false);
+    setShowKanban(false); 
+  }, []);
+
   // Open file manager for a workspace
   const handleOpenFiles = useCallback((workspace: { id: string; name: string; path: string; color: string }) => {
     setActiveFileManager(workspace);
+    setShowKanban(false);
   }, []);
 
   // Toggle global chat
@@ -338,15 +399,37 @@ export default function Home() {
     }
   }, [fetchAgents, fetchWorkspaces]);
 
-  const handleMobileAction = useCallback((action: 'chat' | 'model') => {
+
+
+  const handleMobileAction = useCallback((action: 'chat' | 'model' | 'openFilteredKanban' | 'openWorkspaceKanban' | 'openWorkspaceFiles') => {
+    if (action === 'openWorkspaceKanban') {
+      if (currentWorkspace) {
+        handleOpenKanban(currentWorkspace.id);
+      }
+      return;
+    }
+    
+    if (action === 'openWorkspaceFiles') {
+      if (currentWorkspace) {
+        handleOpenFiles(currentWorkspace);
+      }
+      return;
+    }
+    
     if (!nearbyAgent) return;
     if (action === 'chat') {
       setActiveChat(nearbyAgent);
       setIsChatMinimized(false);
     } else if (action === 'model') {
       setShowQuickModelSelector(prev => !prev);
+    } else if (action === 'openFilteredKanban') {
+        // Find workspace
+        const workspace = nearbyAgent.workspace || workspaces.find(w => w.id === nearbyAgent.workspaceId);
+        if (workspace) {
+            handleOpenKanban(workspace.id, nearbyAgent.id);
+        }
     }
-  }, [nearbyAgent]);
+  }, [nearbyAgent, workspaces, currentWorkspace, handleOpenKanban]);
 
   // Handle keyboard events for chat interaction (desktop only)
   useEffect(() => {
@@ -362,9 +445,26 @@ export default function Home() {
       if (e.key.toLowerCase() === 'm' && nearbyAgent && !activeChat) {
         setShowQuickModelSelector(prev => !prev);
       }
+      if (e.key.toLowerCase() === 'k') {
+        if (nearbyAgent && !activeChat) {
+          const workspace = nearbyAgent.workspace || workspaces.find(w => w.id === nearbyAgent.workspaceId);
+          if (workspace) {
+              handleOpenKanban(workspace.id, nearbyAgent.id);
+          }
+        } else if (currentWorkspace && !activeChat && !showKanban) {
+          handleOpenKanban(currentWorkspace.id);
+        }
+      }
+      if (e.key.toLowerCase() === 'f') {
+        if (currentWorkspace && !activeChat && !activeFileManager) {
+          handleOpenFiles(currentWorkspace);
+        }
+      }
       if (e.key === 'Escape') {
         if (showQuickModelSelector) {
           setShowQuickModelSelector(false);
+        } else if (showKanban) {
+          setShowKanban(false);
         } else if (showGlobalChat) {
           setShowGlobalChat(false);
         } else if (activeFileManager) {
@@ -380,7 +480,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nearbyAgent, activeChat, showQuickModelSelector, showGlobalChat, activeFileManager, showAgentPanel, isMobile]);
+  }, [nearbyAgent, activeChat, showQuickModelSelector, showGlobalChat, activeFileManager, showAgentPanel, isMobile, workspaces, showKanban, currentWorkspace]);
 
   // Cleanup throttle timer on unmount
   useEffect(() => {
@@ -408,6 +508,30 @@ export default function Home() {
 
   return (
     <div className="fixed inset-0 w-full h-full overflow-hidden bg-[#1e272e]">
+      {/* Server Warning */}
+      {!dismissedServerWarning && (
+        <OpenCodeServerWarning 
+          serverStatus={serverStatus} 
+          onRetry={checkServer}
+          onDismiss={() => setDismissedServerWarning(true)} 
+        />
+      )}
+
+      <Sidebar 
+        isOpen={showSidebar} 
+        onToggle={() => setShowSidebar(!showSidebar)}
+        activeMenu={activeAdminMenu}
+        onSelectMenu={(menu) => {
+          setActiveAdminMenu(menu);
+          if (isMobile) setShowSidebar(false);
+        }}
+        showToggle={!showKanban}
+      />
+      
+      {activeAdminMenu === 'users' && (
+        <UserManagement onClose={() => setActiveAdminMenu(null)} />
+      )}
+
       <div className="absolute inset-0 z-0">
         <GameCanvas 
           currentUser={user} 
@@ -417,6 +541,7 @@ export default function Home() {
           agentsNeedingAction={agentsNeedingAction}
           onMove={handleMove}
           onAgentProximity={handleAgentProximity}
+          onWorkspaceEnter={handleWorkspaceEnter}
           onWorkspaceMoved={handleWorkspaceMoved}
           proximityThreshold={2.5}
           inputRef={gameInputRef}
@@ -466,35 +591,67 @@ export default function Home() {
           )}
           
           {/* Nearby Agent Indicator (desktop only — mobile uses action buttons) */}
-          {currentNearbyAgent && !activeChat && !showQuickModelSelector && (
+          {currentNearbyAgent && !activeChat && !showQuickModelSelector && !showKanban && (
             <div 
               style={{ 
                 position: 'absolute', 
-                top: '50%', 
+                top: '120px', 
                 left: '50%', 
-                transform: 'translate(-50%, -50%)',
+                transform: 'translate(-50%, 0)',
                 zIndex: 99998,
                 pointerEvents: 'none'
               }}
             >
-              <div className="bg-slate-800/90 backdrop-blur-md text-white px-4 py-3 rounded-xl border border-slate-600/50 shadow-lg">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare size={16} className="text-indigo-400" />
-                    <span className="text-sm font-medium">
-                      Press <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-xs">E</kbd> to chat with {currentNearbyAgent.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Cpu size={16} className="text-purple-400" />
-                    <span className="text-sm font-medium">
-                      Press <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-xs">M</kbd> to change model
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-1">
-                    <span>Current model:</span>
-                    <span className="text-purple-300">{getModelById((currentNearbyAgent as any).model)?.name || 'Default'}</span>
-                  </div>
+              <div className="bg-slate-800/80 backdrop-blur-sm text-white px-4 py-2 rounded-full border border-slate-600/30 shadow-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={14} className="text-indigo-400" />
+                  <span className="text-xs font-medium">
+                    <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] mr-1">E</kbd> Chat
+                  </span>
+                </div>
+                <div className="w-px h-4 bg-slate-600/50"></div>
+                <div className="flex items-center gap-2">
+                  <Cpu size={14} className="text-purple-400" />
+                  <span className="text-xs font-medium">
+                    <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] mr-1">M</kbd> Model
+                  </span>
+                </div>
+                <div className="w-px h-4 bg-slate-600/50"></div>
+                <div className="flex items-center gap-2">
+                  <Layout size={14} className="text-emerald-400" />
+                  <span className="text-xs font-medium">
+                    <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] mr-1">K</kbd> Kanban
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Workspace Indicator (desktop only) */}
+          {currentWorkspace && !currentNearbyAgent && !activeChat && !showKanban && !activeFileManager && (
+            <div 
+              style={{ 
+                position: 'absolute', 
+                top: '120px', 
+                left: '50%', 
+                transform: 'translate(-50%, 0)',
+                zIndex: 99998,
+                pointerEvents: 'none'
+              }}
+            >
+              <div className="bg-slate-800/80 backdrop-blur-sm text-white px-4 py-2 rounded-full border border-slate-600/30 shadow-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="flex items-center gap-2">
+                  <Layout size={14} className="text-emerald-400" />
+                  <span className="text-xs font-medium">
+                    <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] mr-1">K</kbd> Kanban
+                  </span>
+                </div>
+                <div className="w-px h-4 bg-slate-600/50"></div>
+                <div className="flex items-center gap-2">
+                  <FolderOpen size={14} className="text-amber-400" />
+                  <span className="text-xs font-medium">
+                    <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] mr-1">F</kbd> Files
+                  </span>
                 </div>
               </div>
             </div>
@@ -587,106 +744,121 @@ export default function Home() {
             </div>
           )}
 
+          {/* Kanban Board Overlay */}
+          {showKanban && kanbanWorkspace && (
+            <KanbanBoard 
+              workspaceId={kanbanWorkspace.id} 
+              workspaceName={kanbanWorkspace.name} 
+              onClose={() => setShowKanban(false)}
+              initialAgentFilter={kanbanInitialAgentId || undefined}
+              onOpenChat={handleKanbanChat}
+            />
+          )}
+
           {/* HUD - Bottom Left (Control Info) */}
-          <div 
-            style={{ 
-              position: 'absolute', 
-              bottom: '24px', 
-              left: '24px', 
-              zIndex: 99998,
-              pointerEvents: 'none'
-            }}
-          >
-            <div className="bg-white/10 backdrop-blur-md text-white/80 p-3 rounded-2xl border border-white/10 shadow-lg text-sm font-medium flex flex-col gap-1.5">
-              <div className="flex items-center gap-2"><span className="bg-white/20 px-1.5 py-0.5 rounded text-xs">W A S D</span> or <span className="bg-white/20 px-1.5 py-0.5 rounded text-xs">Arrow Keys</span> to walk</div>
+          {!showKanban && (
+            <div 
+              style={{ 
+                position: 'absolute', 
+                bottom: '24px', 
+                left: '24px', 
+                zIndex: 99998,
+                pointerEvents: 'none'
+              }}
+            >
+              <div className="bg-white/10 backdrop-blur-md text-white/80 p-3 rounded-2xl border border-white/10 shadow-lg text-sm font-medium flex flex-col gap-1.5">
+                <div className="flex items-center gap-2"><span className="bg-white/20 px-1.5 py-0.5 rounded text-xs">W A S D</span> or <span className="bg-white/20 px-1.5 py-0.5 rounded text-xs">Arrow Keys</span> to walk</div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* UI Controls - Bottom Right */}
-          <div 
-            style={{ 
-              position: 'absolute', 
-              bottom: '24px', 
-              right: '24px', 
-              zIndex: 99999,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: '16px'
-            }}
-          >
-            {/* Panel Agent */}
-            {showAgentPanel && (
-              <div className="shadow-[0_8px_30px_rgb(0,0,0,0.4)] transition-all duration-300 transform origin-bottom-right">
-                <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={handleOpenFiles} currentUserId={user?.id} />
-              </div>
-            )}
-
-            {/* Action Bar */}
-            <div className="bg-[#2f3542]/95 backdrop-blur-md text-white p-2.5 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.3)] border border-[#57606f]/50 w-[380px]">
-              <div className="flex justify-between items-center gap-2">
-                
-                {/* User Profile */}
-                <div className="flex items-center gap-2.5 pl-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-inner">
-                    <UserIcon size={18} className="text-white" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-bold text-sm text-gray-100 leading-tight">{user.username}</span>
-                    <span className="text-[10px] text-[#2ed573] font-medium leading-tight flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> 
-                      {socketConnected ? `${onlineCount} online` : 'Connecting...'}
-                    </span>
-                  </div>
+          {!showKanban && (
+            <div 
+              style={{ 
+                position: 'absolute', 
+                bottom: '24px', 
+                right: '24px', 
+                zIndex: 99999,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: '16px'
+              }}
+            >
+              {/* Panel Agent */}
+              {showAgentPanel && (
+                <div className="shadow-[0_8px_30px_rgb(0,0,0,0.4)] transition-all duration-300 transform origin-bottom-right">
+                  <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={handleOpenFiles} onOpenKanban={handleOpenKanban} currentUserId={user?.id} />
                 </div>
+              )}
 
-                {/* Action Buttons */}
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleToggleGlobalChat}
-                    className={`relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                      showGlobalChat 
-                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
-                        : 'bg-[#57606f]/50 hover:bg-[#57606f] text-gray-200'
-                    }`}
-                    title="Global Chat"
-                  >
-                    <MessageCircle size={16} />
-                    <span>Chat</span>
-                    {chatUnreadCount > 0 && !showGlobalChat && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center px-1 font-bold animate-pulse">
-                        {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setShowAgentPanel(!showAgentPanel)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                      showAgentPanel 
-                        ? 'bg-[#3742fa] hover:bg-[#5352ed] text-white shadow-[0_0_15px_rgba(55,66,250,0.4)]' 
-                        : 'bg-[#57606f]/50 hover:bg-[#57606f] text-gray-200'
-                    }`}
-                  >
-                    <Users size={16} />
-                    <span>Agents</span>
-                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${showAgentPanel ? 'bg-white/20' : 'bg-black/30'}`}>
-                      {agents.length}
-                    </span>
-                  </button>
+              {/* Action Bar */}
+              <div className="bg-[#2f3542]/95 backdrop-blur-md text-white p-2.5 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.3)] border border-[#57606f]/50 w-[380px]">
+                <div className="flex justify-between items-center gap-2">
                   
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-xl transition-all duration-200"
-                    title="Logout"
-                  >
-                    <LogOut size={18} />
-                  </button>
-                </div>
+                  {/* User Profile */}
+                  <div className="flex items-center gap-2.5 pl-2">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-inner">
+                      <UserIcon size={18} className="text-white" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-bold text-sm text-gray-100 leading-tight">{user.username}</span>
+                      <span className="text-[10px] text-[#2ed573] font-medium leading-tight flex items-center gap-1">
+                        <span className={`w-1.5 h-1.5 rounded-full ${socketConnected ? 'bg-[#2ed573]' : 'bg-red-500'} inline-block ${socketConnected ? 'animate-pulse' : ''}`}></span> 
+                        {socketConnected ? `${onlineCount} online` : (connectionError === 'xhr poll error' ? 'Socket Server Offline' : (connectionError || 'Connecting...'))}
+                      </span>
+                    </div>
+                  </div>
 
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleToggleGlobalChat}
+                      className={`relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                        showGlobalChat 
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+                          : 'bg-[#57606f]/50 hover:bg-[#57606f] text-gray-200'
+                      }`}
+                      title="Global Chat"
+                    >
+                      <MessageCircle size={16} />
+                      <span>Chat</span>
+                      {chatUnreadCount > 0 && !showGlobalChat && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center px-1 font-bold animate-pulse">
+                          {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => setShowAgentPanel(!showAgentPanel)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                        showAgentPanel 
+                          ? 'bg-[#3742fa] hover:bg-[#5352ed] text-white shadow-[0_0_15px_rgba(55,66,250,0.4)]' 
+                          : 'bg-[#57606f]/50 hover:bg-[#57606f] text-gray-200'
+                      }`}
+                    >
+                      <Users size={16} />
+                      <span>Agents</span>
+                      <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${showAgentPanel ? 'bg-white/20' : 'bg-black/30'}`}>
+                        {agents.length}
+                      </span>
+                    </button>
+                    
+                    <button
+                      onClick={handleLogout}
+                      className="p-2 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-xl transition-all duration-200"
+                      title="Logout"
+                    >
+                      <LogOut size={18} />
+                    </button>
+                  </div>
+
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
@@ -698,7 +870,8 @@ export default function Home() {
             <MobileControls
               onDirectionChange={handleTouchDirection}
               onAction={handleMobileAction}
-              showActionButtons={!!currentNearbyAgent && !activeChat && !showQuickModelSelector}
+              showActionButtons={!!currentNearbyAgent && !activeChat && !showQuickModelSelector && !showKanban}
+              showWorkspaceAction={!!currentWorkspace && !currentNearbyAgent && !activeChat && !showKanban}
               agentName={currentNearbyAgent?.name}
             />
           )}
@@ -718,8 +891,8 @@ export default function Home() {
                   <div className="flex flex-col">
                     <span className="font-bold text-[11px] text-gray-100 leading-tight">{user.username}</span>
                     <span className="text-[9px] text-[#2ed573] font-medium leading-tight flex items-center gap-1">
-                      <span className="w-1 h-1 rounded-full bg-[#2ed573] inline-block animate-pulse"></span> 
-                      {socketConnected ? `${onlineCount} online` : '...'}
+                      <span className={`w-1 h-1 rounded-full ${socketConnected ? 'bg-[#2ed573]' : 'bg-red-500'} inline-block ${socketConnected ? 'animate-pulse' : ''}`}></span> 
+                      {socketConnected ? `${onlineCount} online` : (connectionError === 'xhr poll error' ? 'Offline' : (connectionError ? 'Error' : '...'))}
                     </span>
                   </div>
                 </div>
@@ -859,6 +1032,9 @@ export default function Home() {
                 <div className="flex-1 overflow-y-auto">
                   <AgentPanel onAgentCreated={fetchAgents} onOpenFiles={(ws) => {
                     setActiveFileManager(ws);
+                    setShowAgentPanel(false);
+                  }} onOpenKanban={(wsId) => {
+                    handleOpenKanban(wsId);
                     setShowAgentPanel(false);
                   }} isMobile currentUserId={user?.id} />
                 </div>

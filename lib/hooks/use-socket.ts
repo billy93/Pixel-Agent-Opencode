@@ -22,6 +22,8 @@ interface UseSocketOptions {
 interface UseSocketReturn {
   /** Whether the socket is connected */
   isConnected: boolean;
+  /** Connection error message if any */
+  connectionError: string | null;
   /** Other online players (excludes current user) */
   otherPlayers: OnlinePlayer[];
   /** Number of online players (including self) */
@@ -33,6 +35,7 @@ interface UseSocketReturn {
 export function useSocket({ userId, initialPosition }: UseSocketOptions): UseSocketReturn {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [otherPlayers, setOtherPlayers] = useState<OnlinePlayer[]>([]);
   const [onlineCount, setOnlineCount] = useState(0);
   
@@ -57,11 +60,18 @@ export function useSocket({ userId, initialPosition }: UseSocketOptions): UseSoc
     socket.on('connect', () => {
       console.log('[Socket] Connected:', socket.id);
       setIsConnected(true);
+      setConnectionError(null);
 
       // Send initial position if available
       if (initialPosition) {
         socket.emit('player:init', initialPosition);
       }
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('[Socket] Connection error:', err.message);
+      setConnectionError(err.message);
+      setIsConnected(false);
     });
 
     socket.on('disconnect', (reason) => {
@@ -152,6 +162,7 @@ export function useSocket({ userId, initialPosition }: UseSocketOptions): UseSoc
 
   return {
     isConnected,
+    connectionError,
     otherPlayers,
     onlineCount,
     sendPosition,

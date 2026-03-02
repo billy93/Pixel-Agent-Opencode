@@ -50,11 +50,11 @@ const CARPET_ZONES = [
 // Each workspace (folder path) = 1 shared room
 // Room size is DYNAMIC based on number of agents
 // No limit on agents per workspace
-export const BASE_ROOM_HEIGHT = 8;   // Room height (tiles)
+export const BASE_ROOM_HEIGHT = 10;   // Room height (tiles) increased from 8
 const ROOM_MARGIN = 2;        // tiles between rooms
 const AGENT_SPACING = 6;      // tiles between each agent (center to center) - 192px apart
 const DESK_WIDTH = 2;         // Each desk sprite is 2 tiles wide
-const ROOM_PADDING = 2;       // Extra padding on each side of the room
+const ROOM_PADDING = 3;       // Extra padding on each side of the room (increased from 2)
 
 // Calculate dynamic room width based on agent count
 export function getDynamicRoomWidth(agentCount: number): number {
@@ -119,7 +119,7 @@ export function getDeskPositionsInRoom(roomIndex: number, agentCount: number, wo
   const roomPos = getRoomPosition(roomIndex, workspaces);
   const positions: { x: number; y: number }[] = [];
   
-  const deskY = roomPos.y + BASE_ROOM_HEIGHT - 3; // Lower part of room
+  const deskY = roomPos.y + BASE_ROOM_HEIGHT - 2; // Lower part of room
   const startX = roomPos.x + ROOM_PADDING + (AGENT_SPACING - DESK_WIDTH) / 2; // Center desk in each agent slot
   
   for (let i = 0; i < agentCount; i++) {
@@ -139,7 +139,7 @@ export function getAgentPositionsInRoom(roomIndex: number, agentCount: number, w
   const positions: { x: number; y: number }[] = [];
   
   // Agent Y = desk Y - 2 tiles (above desk)
-  const agentY = (roomPos.y + BASE_ROOM_HEIGHT - 5) * TILE_SIZE;
+  const agentY = (roomPos.y + BASE_ROOM_HEIGHT - 3) * TILE_SIZE;
   
   // Agent X = center of each agent slot (same as desk center)
   const startX = (roomPos.x + ROOM_PADDING) * TILE_SIZE + (AGENT_SPACING * TILE_SIZE) / 2 - TILE_SIZE / 2;
@@ -167,7 +167,7 @@ export function getAgentPositionInRoom(roomIndex: number, slotIndex: number, tot
   const startX = (roomPos.x + ROOM_PADDING) * TILE_SIZE + (AGENT_SPACING * TILE_SIZE) / 2 - TILE_SIZE / 2;
   return {
     x: startX + slotIndex * AGENT_SPACING * TILE_SIZE,
-    y: (roomPos.y + BASE_ROOM_HEIGHT - 5) * TILE_SIZE,
+    y: (roomPos.y + BASE_ROOM_HEIGHT - 3) * TILE_SIZE,
   };
 }
 
@@ -182,7 +182,7 @@ function isInCarpetZone(x: number, y: number): boolean {
 // Legacy desk position check removed - all agents now use workspace rooms
 
 // Check if a tile is inside a workspace room
-function isInWorkspaceRoom(x: number, y: number, workspaces: WorkspaceRoom[]): WorkspaceRoom | null {
+export function isInWorkspaceRoom(x: number, y: number, workspaces: WorkspaceRoom[]): WorkspaceRoom | null {
   for (const ws of workspaces) {
     if (ws.roomIndex === null) continue;
     const agentCount = ws.agents?.length || 1;
@@ -340,7 +340,7 @@ export function renderOffice(engine: GameEngine, sprites: AllSprites, workspaces
       ? getDragAdjustedRoomPosition(ws, dragState, workspaces)
       : getRoomPosition(ws.roomIndex, workspaces);
     
-    const deskY = roomPos.y + BASE_ROOM_HEIGHT - 3;
+    const deskY = roomPos.y + BASE_ROOM_HEIGHT - 2;
     const startDeskX = roomPos.x + ROOM_PADDING + (AGENT_SPACING - DESK_WIDTH) / 2;
     
     for (let i = 0; i < agentCount; i++) {
@@ -795,6 +795,34 @@ function renderAgentInfoPanel(
   ctx.lineTo(triangleCenterX, panelY + panelHeight + 5);
   ctx.lineTo(triangleCenterX + 5, panelY + panelHeight);
   ctx.stroke();
+
+  // Draw active task count badge
+  if ((character as any).activeTaskCount && (character as any).activeTaskCount > 0) {
+    const count = (character as any).activeTaskCount;
+    const badgeSize = 9;
+    // Position at top-right of panel
+    const badgeX = panelX + panelWidth;
+    const badgeY = panelY;
+    
+    // Glow effect
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 6;
+    
+    ctx.fillStyle = '#f59e0b'; // Amber-500
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, badgeSize, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Reset shadow
+    ctx.shadowBlur = 0;
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px "Inter", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(count.toString(), badgeX, badgeY + 1);
+    ctx.textBaseline = 'alphabetic'; // Reset
+  }
 
   // --- Draw content ---
   let textY = panelY + 14;

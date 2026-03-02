@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Character, AgentStatus, WorkspaceRoom } from '@/types';
 import { createGameEngine, startGameLoop, stopGameLoop, centerCameraOnCharacter, GameEngine, TILE_SIZE, OFFICE_WIDTH, OFFICE_HEIGHT, screenToWorld } from '@/lib/game/engine';
 import { createInputHandler, applyMovement, InputState, setTouchDirection } from '@/lib/game/input';
-import { renderOffice, renderCharacters, renderDebugInfo, hitTestWorkspaceRoom, createDragState, getDragAdjustedRoomPosition, getRoomPosition as getRoomPositionImport, WorkspaceDragState, BASE_ROOM_HEIGHT, getDynamicRoomWidth } from '@/lib/game/renderer';
+import { renderOffice, renderCharacters, renderDebugInfo, hitTestWorkspaceRoom, createDragState, getDragAdjustedRoomPosition, getRoomPosition as getRoomPositionImport, WorkspaceDragState, BASE_ROOM_HEIGHT, getDynamicRoomWidth, isInWorkspaceRoom } from '@/lib/game/renderer';
 import { createAllSprites, AllSprites } from '@/lib/game/animated-sprites';
 
 // Agent type for GameCanvas (compatible with both old and new schema)
@@ -18,6 +18,7 @@ interface GameAgent {
   sessionId?: string | null;
   model?: string;
   currentTask?: string | null;
+  activeTaskCount?: number;
   deskIndex?: number | null;
   workspaceId?: string | null;
   // Workspace relation (new schema)
@@ -54,6 +55,7 @@ interface GameCanvasProps {
   agentsNeedingAction?: Set<string>; // Set of agent IDs that need user action
   onMove?: (x: number, y: number, direction: string) => void;
   onAgentProximity?: (agent: GameAgent | null) => void;
+  onWorkspaceEnter?: (workspace: WorkspaceRoom | null) => void;
   onWorkspaceMoved?: (workspaceId: string, positionX: number, positionY: number) => void; // Called when workspace is dragged to new position
   proximityThreshold?: number; // Distance in tiles to trigger proximity
   inputRef?: React.MutableRefObject<InputState | null>; // Expose input for touch controls
@@ -67,6 +69,7 @@ export default function GameCanvas({
   agentsNeedingAction = new Set(),
   onMove,
   onAgentProximity,
+  onWorkspaceEnter,
   onWorkspaceMoved,
   proximityThreshold = 2, // Default 2 tiles (64 pixels at 32px per tile)
   inputRef: externalInputRef,
@@ -87,6 +90,7 @@ export default function GameCanvas({
   const [fps, setFps] = useState(60);
   const fpsCounterRef = useRef({ frames: 0, lastTime: 0 });
   const nearbyAgentRef = useRef<GameAgent | null>(null);
+  const lastWorkspaceRef = useRef<WorkspaceRoom | null>(null);
   
   // Store agents, workspaces, and callbacks in refs to avoid useEffect re-runs
   const agentsRef = useRef<GameAgent[]>(agents);
@@ -95,6 +99,7 @@ export default function GameCanvas({
   const agentsNeedingActionRef = useRef<Set<string>>(agentsNeedingAction);
   const onMoveRef = useRef(onMove);
   const onAgentProximityRef = useRef(onAgentProximity);
+  const onWorkspaceEnterRef = useRef(onWorkspaceEnter);
   const onWorkspaceMovedRef = useRef(onWorkspaceMoved);
   const proximityThresholdRef = useRef(proximityThreshold);
   const fpsRef = useRef(fps);
@@ -124,6 +129,10 @@ export default function GameCanvas({
   useEffect(() => {
     onAgentProximityRef.current = onAgentProximity;
   }, [onAgentProximity]);
+
+  useEffect(() => {
+    onWorkspaceEnterRef.current = onWorkspaceEnter;
+  }, [onWorkspaceEnter]);
 
   useEffect(() => {
     onWorkspaceMovedRef.current = onWorkspaceMoved;
@@ -364,6 +373,19 @@ export default function GameCanvas({
         nearbyAgentRef.current = closestAgent;
         if (onAgentProximityRef.current) {
           onAgentProximityRef.current(closestAgent);
+        }
+      }
+
+      // Check workspace proximity
+      if (onWorkspaceEnterRef.current) {
+        // Player position is in pixels, convert to tiles for isInWorkspaceRoom
+        const tileX = player.x / TILE_SIZE;
+        const tileY = player.y / TILE_SIZE;
+        const currentWorkspace = isInWorkspaceRoom(tileX, tileY, currentWorkspaces);
+        
+        if (lastWorkspaceRef.current?.id !== currentWorkspace?.id) {
+          lastWorkspaceRef.current = currentWorkspace;
+          onWorkspaceEnterRef.current(currentWorkspace);
         }
       }
 

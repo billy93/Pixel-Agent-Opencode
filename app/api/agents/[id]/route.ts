@@ -61,9 +61,9 @@ export async function DELETE(
         });
 
         if (workspace && workspace.agents.length > 0) {
-          const ROOM_PADDING = 2;
+          const ROOM_PADDING = 3;
           const AGENT_SPACING = 6;
-          const BASE_ROOM_HEIGHT = 8;
+          const BASE_ROOM_HEIGHT = 10;
           const TILE_SIZE = 32;
 
           // Use custom position if available, otherwise calculate default
@@ -87,7 +87,7 @@ export async function DELETE(
           }
 
           const totalAgents = workspace.agents.length;
-          const agentY = (roomY + BASE_ROOM_HEIGHT - 5) * TILE_SIZE;
+          const agentY = (roomY + BASE_ROOM_HEIGHT - 3) * TILE_SIZE;
           const startX = (roomX + ROOM_PADDING) * TILE_SIZE + (AGENT_SPACING * TILE_SIZE) / 2 - TILE_SIZE / 2;
 
           // Reassign deskIndex sequentially and recalculate x/y
